@@ -1,0 +1,21 @@
+{
+  "name": "vue3-elementplus-project",
+  "version": "1.0.0",
+  "description": "基于Element Plus的Vue3项目",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.1.0",
+    "element-plus": "^2.3.8",
+    "vue": "^3.2.47",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^3.2.0",
+    "vite": "^3.2.5"
+  }
+}

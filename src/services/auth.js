@@ -55,8 +55,7 @@ export function clearAllTokens() {
 
 export function getUser() {
   try {
-    const raw = localStorage.getItem('user_info')
-    console.log('getUser raw:', raw);
+    const raw = localStorage.getItem('user_info')    
     return raw ? JSON.parse(raw) : null
   } catch (e) {
     return null

@@ -60,15 +60,14 @@ export default ({ mode }) => {
     server: {
       port: 3000,
       open: true,
-      proxy/*: {
-      '/api': {
-        target: 'http://127.0.0.1:18081',   // 后端 API 地址
-        changeOrigin: true,                // 改变请求源，避免 CORS 问题
-        secure: false,                     // 如果是https接口，需要配置为false
-        rewrite: (path) => path.replace(/^\/api/, ''),  // 重写路径，去掉/api前缀
-      },
-    },*/
-
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:18081',   // 后端 API 地址
+          changeOrigin: true,                // 改变请求源，避免 CORS 问题
+          secure: false,                     // 如果是https接口，需要配置为false
+          rewrite: (path) => path.replace(/^\/api/, ''),  // 重写路径，去掉/api前缀
+        },
+      }
     },
     resolve: {
       alias: {

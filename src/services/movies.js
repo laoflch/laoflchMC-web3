@@ -37,7 +37,11 @@ export async function getMovie(id) {
 }
 
 export async function createMovie(payload) {
-  return http.post('/movies', payload)
+  //console.log('Creating movie with payload:', payload)
+  const data={}
+  data.table="movie_info"
+  data.data=payload
+  return http.post('/api/storage/insert', data)
 }
 
 export async function deleteMovie(id) {
@@ -47,5 +51,8 @@ export async function deleteMovie(id) {
 export async function uploadImage(file, type = 'movie_posters') {
   const formData = new FormData()
   formData.append('file', file)
-  return http.post(`/api/image/upload/${type}`, formData)
+  formData.append('space_name', type)
+  formData.append('image_name', file.name)
+  
+  return http.post(`/api/image/upload/`, formData)
 }

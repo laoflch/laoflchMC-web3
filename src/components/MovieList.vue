@@ -144,6 +144,7 @@ onMounted(() => {
 // 新增电影相关
 const addForm = ref({
   imdb_id: '',
+  douban_id: '',
   name_ch: '',
   name_en: '',
   year: '',
@@ -160,6 +161,9 @@ const addForm = ref({
   posterFile: null,
   screenshotFiles: []
 })
+
+// 剧照文件列表，用于显示上传的图片
+const screenshotFileList = ref([])
 
 const addFormRules = {
   imdb_id: [
@@ -181,6 +185,7 @@ const openAddDialog = () => {
   // 重置表单
   addForm.value = {
     imdb_id: '',
+    douban_id: '',
     name_ch: '',
     name_en: '',
     year: '',
@@ -197,18 +202,47 @@ const openAddDialog = () => {
     posterFile: null,
     screenshotFiles: []
   }
+  screenshotFileList.value = []
   // 清除验证状态
   if (addFormRef.value) {
     addFormRef.value.clearValidate()
   }
 }
 
-const handlePosterChange = (file) => {
-  addForm.value.posterFile = file.raw
+const handlePosterChange = async (file) => {
+  try {
+    const posterRes = await uploadImage(file.raw, 'movie_posters')
+    addForm.value.image = posterRes.data 
+    ElMessage.success('海报上传成功')
+  } catch (err) {
+    ElMessage.error(`海报上传失败：${err.message || err}`)
+  }
 }
 
-const handleScreenshotChange = (file, fileList) => {
-  addForm.value.screenshotFiles = fileList.map(f => f.raw)
+const handleScreenshotChange = async (file, fileList) => {
+  try {
+    const screenshotRes = await uploadImage(file.raw, 'movie_image')
+    const screenshotId = screenshotRes.data // 将上传成功的图片ID添加到images数组中
+    
+    // 更新截图文件列表，只保留未上传的文件
+    addForm.value.screenshotFiles = fileList
+      .filter(f => f.raw !== file.raw)
+      .map(f => f.raw)
+    
+    // 将上传成功的图片ID添加到images数组中
+    let images = []
+    try {
+      images = JSON.parse(addForm.value.images)
+    } catch (e) {
+      images = []
+    }
+    images.push(screenshotId)
+    addForm.value.images = JSON.stringify(images)
+    
+    ElMessage.success('剧照上传成功')
+  } catch (err) {
+    ElMessage.error(`剧照上传失败：${err.message || err}`)
+  }
 }
 
 const handleAddMovie = async () => {
@@ -218,24 +252,11 @@ const handleAddMovie = async () => {
     if (valid) {
       submitting.value = true
       try {
-        // 上传海报图片
-        if (addForm.value.posterFile) {
-          const posterRes = await uploadImage(addForm.value.posterFile, 'movie_posters')
-          addForm.value.image = posterRes.id || posterRes.data?.id || posterRes
-        }
-
-        // 上传剧照图片
-        if (addForm.value.screenshotFiles.length > 0) {
-          const uploadPromises = addForm.value.screenshotFiles.map(file => 
-            uploadImage(file, 'movie_image')
-          )
-          const screenshotResults = await Promise.all(uploadPromises)
-          const screenshotIds = screenshotResults.map(res => res.id || res.data?.id || res)
-          addForm.value.images = JSON.stringify(screenshotIds)
-        }
-
+        // 过滤掉不需要提交的字段
+        const { posterFile, screenshotFiles, ...movieData } = addForm.value
+        
         // 提交电影信息
-        await createMovie(addForm.value)
+        await createMovie(movieData)
         ElMessage.success('添加电影成功')
         addDialogVisible.value = false
         // 刷新电影列表
@@ -388,25 +409,37 @@ const handleAddMovie = async () => {
           <el-col :span="16">
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="IMDB ID" prop="imdb_id">
-                  <el-input v-model="addForm.imdb_id" placeholder="请输入IMDB ID" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
                 <el-form-item label="中文名" prop="name_ch">
                   <el-input v-model="addForm.name_ch" placeholder="请输入中文名" />
                 </el-form-item>
               </el-col>
-            </el-row>
-            <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item label="英文名" prop="name_en">
                   <el-input v-model="addForm.name_en" placeholder="请输入英文名" />
                 </el-form-item>
               </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="IMDB ID" prop="imdb_id">
+                  <el-input v-model="addForm.imdb_id" placeholder="请输入IMDB ID" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="豆瓣ID">
+                  <el-input v-model="addForm.douban_id" placeholder="请输入豆瓣ID" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item label="年份" prop="year">
                   <el-input v-model="addForm.year" placeholder="请输入年份" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="评分">
+                  <el-input v-model="addForm.rating" placeholder="请输入评分" />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -446,13 +479,6 @@ const handleAddMovie = async () => {
                 </el-form-item>
               </el-col>
             </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="评分">
-                  <el-input v-model="addForm.rating" placeholder="请输入评分" />
-                </el-form-item>
-              </el-col>
-            </el-row>
           </el-col>
           <el-col :span="8">
             <el-form-item label="海报图片">
@@ -462,8 +488,9 @@ const handleAddMovie = async () => {
                 :on-change="handlePosterChange"
                 :auto-upload="false"
                 accept="image/*"
+                :disabled="submitting"
               >
-                <img v-if="addForm.image" :src="imgBaseUrl + '/api/image/thumbnail/movie_posters/' + addForm.image" class="poster-preview" />
+                <img v-if="addForm.image" :src="imgBaseUrl + '/api/image/origin/movie_posters/' + addForm.image" class="poster-preview" />
                 <el-icon v-else class="poster-uploader-icon"><Plus /></el-icon>
               </el-upload>
             </el-form-item>
@@ -479,12 +506,13 @@ const handleAddMovie = async () => {
         </el-form-item>
         <el-form-item label="电影剧照">
           <el-upload
-            v-model:file-list="addForm.screenshotFiles"
+            v-model:file-list="screenshotFileList"
             list-type="picture-card"
             :on-change="handleScreenshotChange"
             :auto-upload="false"
             accept="image/*"
             multiple
+            :disabled="submitting"
           >
             <el-icon><Plus /></el-icon>
           </el-upload>

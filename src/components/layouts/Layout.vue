@@ -124,7 +124,7 @@ const handleLogout = async () => {
 .el-header { background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); padding: 0 16px; z-index: 10 }
 .header-inner { display:flex; align-items:center; justify-content:space-between }
 .header-user { margin-left: 12px }
-.content-wrapper { max-width: 1200px; margin: 0 auto; width: 100% }
+.content-wrapper { margin: 0 auto; width: 80% }
 .layout-main { background-color: #f5f7fa; padding: 20px; flex: 1; box-sizing: border-box }
 .el-footer { text-align: center; padding: 12px 0 }
 .el-menu-demo { align-items: center }

@@ -7,7 +7,18 @@ import App from './App.vue'
 
 const app = createApp(App)
 
-app.use(ElementPlus)
+// 自定义Element Plus断点配置
+const breakpoints = {
+  xs: 0,
+  sm: 768,
+  md: 992,
+  lg: 1200,
+  xl: 1920,
+  xxl: 2560,
+  xxxl: 3820
+}
+
+app.use(ElementPlus, { breakpoints })
 app.use(router)
 
 // 注册所有图标

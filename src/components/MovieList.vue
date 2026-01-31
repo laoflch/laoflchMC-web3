@@ -12,6 +12,28 @@ const imgBaseUrl = import.meta.env.VITE_IMG_BASE_URL || ''
 const currentPage = ref(1)
 const pageSize = ref(12)
 const hasMore = ref(true)
+
+// 根据屏幕尺寸计算每页显示数量
+const updatePageSize = () => {
+  const width = window.innerWidth
+  console.log('窗口宽度:', width)
+  if (width < 768) {
+    pageSize.value = 6
+  } else if (width < 992) {
+    pageSize.value = 12
+  } else if (width < 1200) {
+    pageSize.value = 18
+  } else if (width < 1920) {
+    pageSize.value = 24
+  } else if (width < 3820) {
+    pageSize.value = 36
+  } else{
+    pageSize.value = 48
+  }
+}
+
+// 监听窗口大小变化
+window.addEventListener('resize', updatePageSize)
 const dialogVisible = ref(false)
 const selectedMovie = ref(null)
 const currentScreenshotIndex = ref(null)
@@ -20,6 +42,13 @@ const canScrollRight = ref(true)
 const addDialogVisible = ref(false)
 const addFormRef = ref(null)
 const submitting = ref(false)
+const screenshotUploadVisible = ref(false)
+const uploadingScreenshots = ref(false)
+const newScreenshotFiles = ref([])
+const activeUploadTab = ref('upload')
+const urlForm = ref({
+  imageUrl: ''
+})
 
 const handleImageError = (e) => {
   e.target.src = `${imgBaseUrl}/api/image/thumbnail/movie_posters/64dfe4e8-a734-3e30-83eb-c241d6f5aa57`
@@ -137,6 +166,7 @@ const loadMore = async () => {
 }
 
 onMounted(() => {
+  updatePageSize()
   load()
 
 })
@@ -269,6 +299,84 @@ const handleAddMovie = async () => {
     }
   })
 }
+
+// 打开上传剧照对话框
+const openScreenshotUpload = () => {
+  newScreenshotFiles.value = []
+  screenshotUploadVisible.value = true
+}
+
+// 处理新增剧照文件变化
+const handleNewScreenshotChange = async (file, fileList) => {
+  try {
+    uploadingScreenshots.value = true
+    const screenshotRes = await uploadImage(file.raw, 'movie_image')
+    const screenshotId = screenshotRes.data
+
+    // 更新截图文件列表
+    newScreenshotFiles.value = fileList
+
+    // 将上传成功的图片ID添加到当前电影的images数组中
+    if (selectedMovie.value && selectedMovie.value[cols_index.value.images]) {
+      let images = [...selectedMovie.value[cols_index.value.images]]
+      images.push(screenshotId)
+      selectedMovie.value[cols_index.value.images] = images
+    }
+
+    ElMessage.success('剧照上传成功')
+  } catch (err) {
+    ElMessage.error(`剧照上传失败：${err.message || err}`)
+  } finally {
+    uploadingScreenshots.value = false
+  }
+}
+
+// 关闭上传剧照对话框
+const closeScreenshotUpload = () => {
+  screenshotUploadVisible.value = false
+  newScreenshotFiles.value = []
+  urlForm.value.imageUrl = ''
+}
+
+
+// 通过URL添加图片
+const addImageByUrl = async () => {
+  if (!urlForm.value.imageUrl) {
+    ElMessage.warning('请输入图片URL')
+    return
+  }
+
+  try {
+    uploadingScreenshots.value = true
+
+    // 从URL下载图片并上传到服务器
+    const response = await fetch(urlForm.value.imageUrl)
+    if (!response.ok) {
+      throw new Error('无法获取图片')
+    }
+
+    const blob = await response.blob()
+    const file = new File([blob], urlForm.value.imageUrl, { type: blob.type })
+
+    // 上传图片到服务器
+    const screenshotRes = await uploadImage(file, 'movie_image')
+    const screenshotId = screenshotRes.data
+
+    // 将上传成功的图片ID添加到当前电影的images数组中
+    if (selectedMovie.value && selectedMovie.value[cols_index.value.images]) {
+      let images = [...selectedMovie.value[cols_index.value.images]]
+      images.push(screenshotId)
+      selectedMovie.value[cols_index.value.images] = images
+    }
+
+    ElMessage.success('剧照添加成功')
+    urlForm.value.imageUrl = ''
+  } catch (err) {
+    ElMessage.error(`剧照添加失败：${err.message || err}`)
+  } finally {
+    uploadingScreenshots.value = false
+  }
+}
 </script>
 
 <template>
@@ -281,7 +389,7 @@ const handleAddMovie = async () => {
       </div>
     </div>
 
-    <el-row :gutter="20" v-loading="loading">
+    <el-row :gutter="{ xs: 10, sm: 15, md: 20, lg: 20, xl: 20, xxl: 25, xxxl: 30 }" v-loading="loading">
       <el-col 
         v-for="movie in movies" 
         :key="movie[cols_index.imdb_id]" 
@@ -290,6 +398,8 @@ const handleAddMovie = async () => {
         :md="8" 
         :lg="6" 
         :xl="4"
+        :xxl="3"
+        :xxxl="2"
       >
         <el-card class="movie-card" shadow="hover" @click="showDetail(movie)">
           <div class="movie-image">
@@ -336,11 +446,11 @@ const handleAddMovie = async () => {
               <span class="label">IMDB ID:</span>
               <span>{{ selectedMovie[cols_index.imdb_id] }}</span>
             </div>
-            <div class="detail-item" v-for="(value, key) in selectedMovie" :key="key" >
+            <div class="detail-item" v-for="(value, key) in selectedMovie" :key="key">
               <div v-if="key !== cols_index.images && key !== cols_index.brief_introduction">
               <span class="label">{{ getColumnName(key) }}:</span>
               <span>{{ value }}</span>
-              </div>
+            </div>
             </div>
           </div>
         </div>
@@ -357,7 +467,10 @@ const handleAddMovie = async () => {
           
           <!-- 电影剧照导航栏 -->
           <div class="screenshots-section" v-if="selectedMovie[cols_index.images] ">
-            <h4 class="section-title">电影剧照</h4>
+            <div class="section-title-wrapper">
+              <h4 class="section-title">电影剧照</h4>
+              <el-button type="primary" :icon="Plus" circle size="small" @click="openScreenshotUpload" title="添加剧照"></el-button>
+            </div>
             <div class="screenshots-container">
               <div class="screenshot-nav" ref="screenshotNav">
                 <div 
@@ -390,6 +503,67 @@ const handleAddMovie = async () => {
           </div>
         </div>
       </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="dialogVisible = false">关闭</el-button>
+          
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 上传剧照对话框 -->
+    <el-dialog
+      v-model="screenshotUploadVisible"
+      title="添加电影剧照"
+      width="60%"
+      :close-on-click-modal="false"
+    >
+      <el-tabs v-model="activeUploadTab" class="upload-tabs">
+        <el-tab-pane label="上传本地图片" name="upload">
+          <el-upload
+            v-model:file-list="newScreenshotFiles"
+            list-type="picture-card"
+            :on-change="handleNewScreenshotChange"
+            :auto-upload="false"
+            accept="image/*"
+            multiple
+            :disabled="uploadingScreenshots"
+          >
+            <el-icon><Plus /></el-icon>
+          </el-upload>
+        </el-tab-pane>
+        <el-tab-pane label="通过URL添加" name="url">
+          <div class="url-upload-container">
+            <el-form :model="urlForm" label-width="80px">
+              <el-form-item label="图片URL">
+                <el-input 
+                  v-model="urlForm.imageUrl" 
+                  placeholder="请输入图片URL"
+                  clearable
+                >
+                  <template #append>
+                    <el-button 
+                      @click="addImageByUrl" 
+                      :loading="uploadingScreenshots"
+                      :disabled="!urlForm.imageUrl"
+                    >
+                      添加
+                    </el-button>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-form>
+            <div class="url-preview" v-if="urlForm.imageUrl">
+              <img :src="urlForm.imageUrl" alt="URL预览">
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="closeScreenshotUpload">关闭</el-button>
+        </div>
+      </template>
     </el-dialog>
 
     <!-- 新增电影对话框 -->
@@ -676,10 +850,16 @@ const handleAddMovie = async () => {
 .detail-item {
   margin-bottom: 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   padding: 8px 12px;
   border-radius: 8px;
   transition: background-color 0.2s;
+}
+
+.detail-item > div {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
 }
 
 .detail-item:hover {
@@ -690,6 +870,13 @@ const handleAddMovie = async () => {
   font-weight: 600;
   min-width: 110px;
   color: #409EFF;
+  padding-top: 4px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .screenshots-section {
@@ -705,9 +892,16 @@ const handleAddMovie = async () => {
   display: none;
 }
 
+.section-title-wrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
 .section-title {
   margin-top: 0;
-  margin-bottom: 15px;
+  margin-bottom: 0;
   font-size: 18px;
   color: #303133;
   flex-shrink: 0;
@@ -848,4 +1042,174 @@ const handleAddMovie = async () => {
   padding: 20px 0;
   color: #909399;
 }
+
+.upload-tabs {
+  margin-top: 10px;
+}
+
+.url-upload-container {
+  padding: 20px 0;
+}
+
+.url-preview {
+  margin-top: 20px;
+  text-align: center;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.url-preview img {
+  max-width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+}
+
+/* 添加针对超大屏幕的媒体查询 */
+@media (min-width: 3820px) {
+  .movie-list :deep(.el-row .el-col) {
+    width: calc(100% / 12) !important;
+    flex: 0 0 calc(100% / 12) !important;
+    max-width: calc(100% / 12) !important;
+  }
+}
+</style>
+
+<style>
+/* 添加针对超大屏幕的媒体查询 */
+@media (min-width: 3820px) {
+  .movie-list .el-row .el-col {
+    width: calc(100% / 12) !important;
+    flex: 0 0 calc(100% / 12) !important;
+    max-width: calc(100% / 12) !important;
+    box-sizing: border-box !important;
+    padding-right: 15px !important;
+    padding-left: 15px !important;
+  }
+  
+  .movie-list .el-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -15px !important;
+    margin-left: -15px !important;
+  }
+}
+
+/* 针对不同屏幕尺寸的响应式布局 */
+@media (min-width: 2560px) and (max-width: 3819px) {
+  .movie-list .el-row .el-col {
+    width: calc(100% / 8) !important;
+    flex: 0 0 calc(100% / 8) !important;
+    max-width: calc(100% / 8) !important;
+    box-sizing: border-box !important;
+    padding-right: 15px !important;
+    padding-left: 15px !important;
+  }
+  
+  .movie-list .el-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -15px !important;
+    margin-left: -15px !important;
+  }
+}
+
+@media (min-width: 1920px) and (max-width: 2559px) {
+  .movie-list .el-row .el-col {
+    width: calc(100% / 6) !important;
+    flex: 0 0 calc(100% / 6) !important;
+    max-width: calc(100% / 6) !important;
+    box-sizing: border-box !important;
+    padding-right: 15px !important;
+    padding-left: 15px !important;
+  }
+  
+  .movie-list .el-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -15px !important;
+    margin-left: -15px !important;
+  }
+}
+
+@media (min-width: 1200px) and (max-width: 1919px) {
+  .movie-list .el-row .el-col {
+    width: calc(100% / 4) !important;
+    flex: 0 0 calc(100% / 4) !important;
+    max-width: calc(100% / 4) !important;
+    box-sizing: border-box !important;
+    padding-right: 10px !important;
+    padding-left: 10px !important;
+  }
+  
+  .movie-list .el-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -10px !important;
+    margin-left: -10px !important;
+  }
+}
+
+@media (min-width: 992px) and (max-width: 1199px) {
+  .movie-list .el-row .el-col {
+    width: calc(100% / 3) !important;
+    flex: 0 0 calc(100% / 3) !important;
+    max-width: calc(100% / 3) !important;
+    box-sizing: border-box !important;
+    padding-right: 10px !important;
+    padding-left: 10px !important;
+  }
+  
+  .movie-list .el-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -10px !important;
+    margin-left: -10px !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 991px) {
+  .movie-list .el-row .el-col {
+    width: calc(100% / 2) !important;
+    flex: 0 0 calc(100% / 2) !important;
+    max-width: calc(100% / 2) !important;
+    box-sizing: border-box !important;
+    padding-right: 7.5px !important;
+    padding-left: 7.5px !important;
+  }
+  
+  .movie-list .el-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -7.5px !important;
+    margin-left: -7.5px !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .movie-list .el-row .el-col {
+    width: 100% !important;
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    padding-right: 5px !important;
+    padding-left: 5px !important;
+  }
+  
+  .movie-list .el-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    margin-right: -5px !important;
+    margin-left: -5px !important;
+  }
+}
+
+/* 强制应用样式 */
+.movie-list .el-row .el-col {
+  transition: all 0.3s ease !important;
+}
+
+
 </style>

@@ -53,6 +53,7 @@ export async function uploadImage(file, type = 'movie_posters') {
   formData.append('file', file)
   formData.append('space_name', type)
   formData.append('image_name', file.name)
+  console.log('uploadImage formData:', formData)
   
   return http.post(`/api/image/upload/`, formData)
 }

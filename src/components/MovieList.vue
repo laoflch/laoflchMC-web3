@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
-import { ArrowLeft, ArrowRight, Plus } from '@element-plus/icons-vue'
-import { listMovies, createMovie, uploadImage } from '@/services/movies'
+import { ArrowLeft, ArrowRight, Plus, Edit } from '@element-plus/icons-vue'
+import { listMovies, uploadImage } from '@/services/movies'
 import { ElMessage } from 'element-plus'
+import AddMovieDialog from './AddMovieDialog.vue'
+import EditMovieDialog from './EditMovieDialog.vue'
 
 const movies = ref([])
 const loading = ref(false)
@@ -40,8 +42,8 @@ const currentScreenshotIndex = ref(null)
 const canScrollLeft = ref(false)
 const canScrollRight = ref(true)
 const addDialogVisible = ref(false)
-const addFormRef = ref(null)
-const submitting = ref(false)
+const editDialogVisible = ref(false)
+const currentMovieForEdit = ref(null)
 const screenshotUploadVisible = ref(false)
 const uploadingScreenshots = ref(false)
 const newScreenshotFiles = ref([])
@@ -76,6 +78,19 @@ const showDetail = (movie) => {
   }
   
   dialogVisible.value = true
+}
+
+const handleEditMovie = (movie, event) => {
+  // 阻止事件冒泡，避免触发卡片点击事件
+  event.stopPropagation()
+  // 创建电影对象的深拷贝
+  currentMovieForEdit.value = JSON.parse(JSON.stringify(movie))
+  editDialogVisible.value = true
+}
+
+const handleEditSuccess = () => {
+  // 刷新电影列表
+  loadMovies()
 }
 
 const getColumnName = (key) => {
@@ -172,72 +187,16 @@ onMounted(() => {
 })
 
 // 新增电影相关
-const addForm = ref({
-  imdb_id: '',
-  douban_id: '',
-  name_ch: '',
-  name_en: '',
-  year: '',
-  director: '',
-  actors: '',
-  genre: '',
-  country: '',
-  language: '',
-  duration: '',
-  rating: '',
-  brief_introduction: '',
-  image: '',
-  images: '[]',
-  posterFile: null,
-  screenshotFiles: []
-})
-
-// 剧照文件列表，用于显示上传的图片
-const screenshotFileList = ref([])
-
-const addFormRules = {
-  imdb_id: [
-    { required: true, message: '请输入IMDB ID', trigger: 'blur' }
-  ],
-  name_ch: [
-    { required: true, message: '请输入中文名', trigger: 'blur' }
-  ],
-  name_en: [
-    { required: true, message: '请输入英文名', trigger: 'blur' }
-  ],
-  year: [
-    { required: true, message: '请输入年份', trigger: 'blur' }
-  ]
-}
-
 const openAddDialog = () => {
   addDialogVisible.value = true
-  // 重置表单
-  addForm.value = {
-    imdb_id: '',
-    douban_id: '',
-    name_ch: '',
-    name_en: '',
-    year: '',
-    director: '',
-    actors: '',
-    genre: '',
-    country: '',
-    language: '',
-    duration: '',
-    rating: '',
-    brief_introduction: '',
-    image: '',
-    images: '[]',
-    posterFile: null,
-    screenshotFiles: []
-  }
-  screenshotFileList.value = []
-  // 清除验证状态
-  if (addFormRef.value) {
-    addFormRef.value.clearValidate()
-  }
 }
+
+const handleAddSuccess = () => {
+  // 刷新电影列表
+  load()
+}
+
+
 
 const handlePosterChange = async (file) => {
   try {
@@ -406,7 +365,10 @@ const addImageByUrl = async () => {
             <img :src="imgBaseUrl +'/api/image/thumbnail/movie_posters/'+ movie[cols_index.image]" :alt="movie[cols_index.name_ch]" @error="handleImageError">
           </div>
           <div class="movie-info">
-            <h4 class="movie-title">{{ movie[cols_index.name_ch] }}</h4>
+            <h4 class="movie-title">
+              {{ movie[cols_index.name_ch] }}
+              <el-icon class="edit-icon" @click="handleEditMovie(movie, $event)"><Edit /></el-icon>
+            </h4>
             <p class="movie-subtitle">{{ movie[cols_index.name_en] }}</p>
             <p class="movie-imdb">IMDB: {{ movie[cols_index.imdb_id] }}</p>
           </div>
@@ -455,7 +417,7 @@ const addImageByUrl = async () => {
           </div>
         </div>
         <div class="detail-info">
-          <div class="movie-title">
+          <div class="detail-movie-title">
             <h3>{{ selectedMovie[cols_index.name_ch] }}</h3>
             <p class="detail-subtitle">{{ selectedMovie[cols_index.name_en] }}</p>
           </div>
@@ -567,140 +529,20 @@ const addImageByUrl = async () => {
     </el-dialog>
 
     <!-- 新增电影对话框 -->
-    <el-dialog
+    <AddMovieDialog
       v-model="addDialogVisible"
-      title="新增电影"
-      width="60%"
-      :close-on-click-modal="false"
-    >
-      <el-form
-        ref="addFormRef"
-        :model="addForm"
-        :rules="addFormRules"
-        label-width="120px"
-      >
-        <el-row :gutter="20">
-          <el-col :span="16">
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="中文名" prop="name_ch">
-                  <el-input v-model="addForm.name_ch" placeholder="请输入中文名" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="英文名" prop="name_en">
-                  <el-input v-model="addForm.name_en" placeholder="请输入英文名" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="IMDB ID" prop="imdb_id">
-                  <el-input v-model="addForm.imdb_id" placeholder="请输入IMDB ID" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="豆瓣ID">
-                  <el-input v-model="addForm.douban_id" placeholder="请输入豆瓣ID" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="年份" prop="year">
-                  <el-input v-model="addForm.year" placeholder="请输入年份" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="评分">
-                  <el-input v-model="addForm.rating" placeholder="请输入评分" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="导演">
-                  <el-input v-model="addForm.director" placeholder="请输入导演" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="主演">
-                  <el-input v-model="addForm.actors" placeholder="请输入主演" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="类型">
-                  <el-input v-model="addForm.genre" placeholder="请输入类型" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="国家/地区">
-                  <el-input v-model="addForm.country" placeholder="请输入国家/地区" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="语言">
-                  <el-input v-model="addForm.language" placeholder="请输入语言" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="时长">
-                  <el-input v-model="addForm.duration" placeholder="请输入时长" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="海报图片">
-              <el-upload
-                class="poster-uploader"
-                :show-file-list="false"
-                :on-change="handlePosterChange"
-                :auto-upload="false"
-                accept="image/*"
-                :disabled="submitting"
-              >
-                <img v-if="addForm.image" :src="imgBaseUrl + '/api/image/origin/movie_posters/' + addForm.image" class="poster-preview" />
-                <el-icon v-else class="poster-uploader-icon"><Plus /></el-icon>
-              </el-upload>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="剧情简介">
-          <el-input
-            v-model="addForm.brief_introduction"
-            type="textarea"
-            :rows="4"
-            placeholder="请输入剧情简介"
-          />
-        </el-form-item>
-        <el-form-item label="电影剧照">
-          <el-upload
-            v-model:file-list="screenshotFileList"
-            list-type="picture-card"
-            :on-change="handleScreenshotChange"
-            :auto-upload="false"
-            accept="image/*"
-            multiple
-            :disabled="submitting"
-          >
-            <el-icon><Plus /></el-icon>
-          </el-upload>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="addDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="submitting" @click="handleAddMovie">
-            {{ submitting ? '提交中...' : '确定' }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+      :img-base-url="imgBaseUrl"
+      @success="handleAddSuccess"
+    />
+    
+    <!-- 编辑电影对话框 -->
+    <EditMovieDialog
+      v-model="editDialogVisible"
+      :movie-data="currentMovieForEdit"
+      :cols-index="cols_index"
+      :img-base-url="imgBaseUrl"
+      @success="handleEditSuccess"
+    />
   </div>
 </template>
 
@@ -821,7 +663,7 @@ const addImageByUrl = async () => {
   overflow: visible;
 }
 
-.movie-title {
+.detail-movie-title {
   margin-bottom: 30px;
   padding-bottom: 20px;
   border-bottom: 2px solid #e8eef5;
@@ -832,7 +674,7 @@ const addImageByUrl = async () => {
   z-index: 10;
 }
 
-.movie-title h3 {
+.detail-movie-title h3 {
   margin: 0 0 10px 0;
   font-size: 28px;
   font-weight: 700;
@@ -845,6 +687,7 @@ const addImageByUrl = async () => {
   color: #606266;
   margin: 0;
   font-style: italic;
+  text-align: left;
 }
 
 .detail-item {
@@ -1013,6 +856,16 @@ const addImageByUrl = async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.edit-icon {
+  margin-left: 8px;
+  cursor: pointer;
+  color: #409EFF;
+  flex-shrink: 0;
 }
 
 .movie-subtitle {
@@ -1067,148 +920,142 @@ const addImageByUrl = async () => {
   object-fit: contain;
 }
 
-/* 添加针对超大屏幕的媒体查询 */
-@media (min-width: 3820px) {
-  .movie-list :deep(.el-row .el-col) {
-    width: calc(100% / 12) !important;
-    flex: 0 0 calc(100% / 12) !important;
-    max-width: calc(100% / 12) !important;
-  }
-}
+
+
 </style>
 
 <style>
 /* 添加针对超大屏幕的媒体查询 */
 @media (min-width: 3820px) {
   .movie-list .el-row .el-col {
-    width: calc(100% / 12) !important;
-    flex: 0 0 calc(100% / 12) !important;
-    max-width: calc(100% / 12) !important;
-    box-sizing: border-box !important;
-    padding-right: 15px !important;
-    padding-left: 15px !important;
+    width: calc(100% / 12) ;
+    flex: 0 0 calc(100% / 12) ;
+    max-width: calc(100% / 12) ;
+    box-sizing: border-box ;
+    padding-right: 15px ;
+    padding-left: 15px ;
   }
   
   .movie-list .el-row {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    margin-right: -15px !important;
-    margin-left: -15px !important;
+    display: flex ;
+    flex-wrap: wrap ;
+    margin-right: -15px ;
+    margin-left: -15px ;
   }
 }
-
+/*
 /* 针对不同屏幕尺寸的响应式布局 */
 @media (min-width: 2560px) and (max-width: 3819px) {
   .movie-list .el-row .el-col {
-    width: calc(100% / 8) !important;
-    flex: 0 0 calc(100% / 8) !important;
-    max-width: calc(100% / 8) !important;
-    box-sizing: border-box !important;
-    padding-right: 15px !important;
-    padding-left: 15px !important;
+    width: calc(100% / 8) ;
+    flex: 0 0 calc(100% / 8) ;
+    max-width: calc(100% / 8) ;
+    box-sizing: border-box ;
+    padding-right: 15px ;
+    padding-left: 15px ;
   }
   
   .movie-list .el-row {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    margin-right: -15px !important;
-    margin-left: -15px !important;
+    display: flex ;
+    flex-wrap: wrap ;
+    margin-right: -15px ;
+    margin-left: -15px ;
   }
 }
 
 @media (min-width: 1920px) and (max-width: 2559px) {
   .movie-list .el-row .el-col {
-    width: calc(100% / 6) !important;
-    flex: 0 0 calc(100% / 6) !important;
-    max-width: calc(100% / 6) !important;
-    box-sizing: border-box !important;
-    padding-right: 15px !important;
-    padding-left: 15px !important;
+    width: calc(100% / 6) ;
+    flex: 0 0 calc(100% / 6) ;
+    max-width: calc(100% / 6) !;
+    box-sizing: border-box ;
+    padding-right: 15px ;
+    padding-left: 15px ;
   }
   
   .movie-list .el-row {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    margin-right: -15px !important;
-    margin-left: -15px !important;
+    display: flex ;
+    flex-wrap: wrap ;
+    margin-right: -15px ;
+    margin-left: -15px 
   }
 }
 
 @media (min-width: 1200px) and (max-width: 1919px) {
   .movie-list .el-row .el-col {
-    width: calc(100% / 4) !important;
-    flex: 0 0 calc(100% / 4) !important;
-    max-width: calc(100% / 4) !important;
-    box-sizing: border-box !important;
-    padding-right: 10px !important;
-    padding-left: 10px !important;
+    width: calc(100% / 4) ;
+    flex: 0 0 calc(100% / 4) ;
+    max-width: calc(100% / 4) ;
+    box-sizing: border-box ;
+    padding-right: 10px ;
+    padding-left: 10px ;
   }
   
   .movie-list .el-row {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    margin-right: -10px !important;
-    margin-left: -10px !important;
+    display: flex ;
+    flex-wrap: wrap ;
+    margin-right: -10px ;
+    margin-left: -10px ;
   }
 }
 
 @media (min-width: 992px) and (max-width: 1199px) {
   .movie-list .el-row .el-col {
-    width: calc(100% / 3) !important;
-    flex: 0 0 calc(100% / 3) !important;
-    max-width: calc(100% / 3) !important;
-    box-sizing: border-box !important;
-    padding-right: 10px !important;
-    padding-left: 10px !important;
+    width: calc(100% / 3) ;
+    flex: 0 0 calc(100% / 3) ;
+    max-width: calc(100% / 3) ;
+    box-sizing: border-box ;
+    padding-right: 10px ;
+    padding-left: 10px ;
   }
   
   .movie-list .el-row {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    margin-right: -10px !important;
-    margin-left: -10px !important;
+    display: flex ;
+    flex-wrap: wrap ;
+    margin-right: -10px ;
+    margin-left: -10px ;
   }
 }
 
 @media (min-width: 768px) and (max-width: 991px) {
   .movie-list .el-row .el-col {
-    width: calc(100% / 2) !important;
-    flex: 0 0 calc(100% / 2) !important;
-    max-width: calc(100% / 2) !important;
-    box-sizing: border-box !important;
-    padding-right: 7.5px !important;
-    padding-left: 7.5px !important;
+    width: calc(100% / 2) ;
+    flex: 0 0 calc(100% / 2) ;
+    max-width: calc(100% / 2) ;
+    box-sizing: border-box ;
+    padding-right: 7.5px ;
+    padding-left: 7.5px ;
   }
   
   .movie-list .el-row {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    margin-right: -7.5px !important;
-    margin-left: -7.5px !important;
+    display: flex ;
+    flex-wrap: wrap ;
+    margin-right: -7.5px ;
+    margin-left: -7.5px ;
   }
 }
 
 @media (max-width: 767px) {
   .movie-list .el-row .el-col {
-    width: 100% !important;
-    flex: 0 0 100% !important;
-    max-width: 100% !important;
-    box-sizing: border-box !important;
-    padding-right: 5px !important;
-    padding-left: 5px !important;
+    width: 100% ;
+    flex: 0 0 100% ;
+    max-width: 100% ;
+    box-sizing: border-box ;
+    padding-right: 5px ;
+    padding-left: 5px ;
   }
   
   .movie-list .el-row {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    margin-right: -5px !important;
-    margin-left: -5px !important;
+    display: flex ;
+    flex-wrap: wrap ;
+    margin-right: -5px ;
+    margin-left: -5px ;
   }
 }
-
+*/
 /* 强制应用样式 */
 .movie-list .el-row .el-col {
-  transition: all 0.3s ease !important;
+  transition: all 0.3s ease ;
 }
 
 

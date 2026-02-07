@@ -37,11 +37,13 @@ export async function getMovie(id) {
 }
 
 export async function createMovie(payload) {
-  //console.log('Creating movie with payload:', payload)
-  const data={}
-  data.table="movie_info"
-  data.data=payload
+  const data = { table: 'movie_info', data: payload }
   return http.post('/api/storage/insert', data)
+}
+
+export async function updateMovie(payload) {
+  const data = { table: 'movie_info', data: payload }
+  return http.post('/api/storage/update', data)
 }
 
 export async function deleteMovie(id) {

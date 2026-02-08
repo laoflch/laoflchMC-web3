@@ -26,10 +26,13 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'success'])
 
 const editFormRef = ref(null)
+const uploadRef = ref(null)
 const submitting = ref(false)
 const screenshotFileList = ref([])
 const posterLoading = ref(false)
 const screenshotLoading = ref(false)
+const screenshotUrl = ref('')
+const urlInputDialogVisible = ref(false)
 
 const defaultForm = () => ({
   row_key:'',
@@ -152,12 +155,17 @@ const handleScreenshotChange = async (file) => {
     images.push(id)
     editForm.value.images = JSON.stringify(images)
 
-    console.log('handleScreenshotChange new images:', editForm.value.images)
-    console.log('screenshotFileList.value file:', screenshotFileList.value)
-    // // 直接修改数组而不是创建新数组，减少响应式更新
-    // const index = screenshotFileList.value.findIndex((f) => f.raw === file.raw)
-    // if (index !== -1) {
-    //   // 修改现有元素
+    // 更新截图列表
+    screenshotFileList.value[screenshotFileList.value.length - 1]={
+      uid: id,
+      name: id,
+      status: 'success',
+      url: `${props.imgBaseUrl}/api/image/thumbnail/movie_image/${id}`
+    }
+    
+    
+    
+    
     //   screenshotFileList.value[index] = { uid: id, name: id, status: 'success', url: `${props.imgBaseUrl}/api/image/thumbnail/movie_image/${id}` }
     // } else {
     //   // 添加新元素
@@ -173,19 +181,97 @@ const handleScreenshotChange = async (file) => {
   }
 }
 
-const removeScreenshot = (file) => {
-  //
-  // el-upload 会自动从 file-list 移除，此处同步更新 editForm.images
+const removeScreenshot = (item) => {
+  // 从截图列表中移除
+  const index = screenshotFileList.value.findIndex((f) => f.uid === item.uid)
+  if (index !== -1) {
+    screenshotFileList.value.splice(index, 1)
+  }
+  // 同步更新 editForm.images
   nextTick(() => {
     try {
-      //screenshotFileList.value = screenshotFileList.value.filter(item => item.uid !== file.uid)
-      //screenshotFileList.splice(0,1);
-      const ids = screenshotFileList.value.map((f) => f.uid)//.filter(Boolean)
+      const ids = screenshotFileList.value.map((f) => f.uid).filter(Boolean)
       editForm.value.images = JSON.stringify(ids)
     } catch {
       // ignore
     }
   })
+}
+
+const addScreenshotByUrl = async () => {
+  if (!screenshotUrl.value) {
+    ElMessage.warning('请输入图片URL')
+    return
+  }
+  
+  screenshotLoading.value = true
+  try {
+    // 通过fetch获取图片
+    const response = await fetch(screenshotUrl.value, {
+      mode: 'cors',
+      credentials: 'omit'
+    })
+    
+    if (!response.ok) {
+      throw new Error(`获取图片失败: ${response.statusText}`)
+    }
+    
+    // 将响应转换为Blob
+    const blob = await response.blob()
+    
+    // 创建File对象
+    const file = new File([blob], `screenshot_${Date.now()}.${blob.type.split('/')[1] || 'jpg'}`, {
+      type: blob.type
+    })
+    
+    // 上传图片
+    const res = await uploadImage(file, 'movie_image')
+    const id = res.data
+    
+    // 更新images数组
+    let images = []
+    try {
+      images = JSON.parse(editForm.value.images || '[]')
+    } catch {
+      images = []
+    }
+    images.push(id)
+    editForm.value.images = JSON.stringify(images)
+    
+    // 更新截图列表
+    screenshotFileList.value.push({
+      uid: id,
+      name: id,
+      status: 'success',
+      url: `${props.imgBaseUrl}/api/image/thumbnail/movie_image/${id}`
+    })
+    
+    // 清空URL输入框
+    screenshotUrl.value = ''
+    // 关闭对话框
+    urlInputDialogVisible.value = false
+    ElMessage.success('剧照添加成功')
+  } catch (err) {
+    console.error('添加剧照失败:', err)
+    ElMessage.error(`添加剧照失败：${err.message || err}`)
+  } finally {
+    screenshotLoading.value = false
+  }
+}
+
+const triggerFileInput = () => {
+  // 触发文件选择
+  if (uploadRef.value) {
+    const uploadInput = uploadRef.value.$el.querySelector('input[type="file"]')
+    if (uploadInput) {
+      uploadInput.click()
+    }
+  }
+}
+
+const showUrlInput = () => {
+  // 显示URL输入对话框
+  urlInputDialogVisible.value = true
 }
 
 const handleEditMovie = async () => {
@@ -228,6 +314,10 @@ const posterUrl = computed(() => {
   const img = editForm.value.image
   return img ? `${props.imgBaseUrl}/api/image/thumbnail/movie_posters/${img}` : ''
 })
+
+const getScreenshotUrl = (url) => {
+  return url || `${props.imgBaseUrl}/api/image/thumbnail/movie_posters/64dfe4e8-a734-3e30-83eb-c241d6f5aa57`
+}
 </script>
 
 <template>
@@ -359,45 +449,66 @@ const posterUrl = computed(() => {
             <el-col :xs="24" :sm="24" :md="16" :lg="18" class="screenshot-col">
               <el-form-item label="电影剧照">
                 <div class="screenshot-upload-wrap">
+              
+                  <div class="screenshot-grid">
+                    <!-- 已上传的图片列表 -->
+                    <div
+                      v-for="item in screenshotFileList"
+                      :key="item.uid"
+                      class="screenshot-item"
+                    >
+                      <img :src="getScreenshotUrl(item.url)" class="screenshot-thumbnail" alt="截图" />
+                      <div class="screenshot-actions">
+                        <el-icon class="screenshot-delete" @click="removeScreenshot(item)">
+                          <delete />
+                        </el-icon>
+                      </div>
+                    </div>
+                    <!-- 上传文件按钮 -->
+                    <div class="upload-method-item" style="background-color: #d7ebff ;" @click="triggerFileInput">
+                      <el-icon><Plus /></el-icon>
+                      <span>上传文件</span>
+                    </div>
+                    <!-- URL添加按钮 -->
+                    <div class="upload-method-item"  @click="showUrlInput">
+                      <el-icon><Plus /></el-icon>
+                      <span>URL添加</span>
+                    </div>
+                  </div>
+            
+                            <!-- 隐藏的el-upload组件，用于文件选择 -->
                   <el-upload
+                    ref="uploadRef"
                     v-model:file-list="screenshotFileList"
-                    list-type="picture-card"
-                    class="custom-screenshot-upload"
+                    :show-file-list="false"
                     :on-change="(file) => handleScreenshotChange(file)"
-                    :on-remove="removeScreenshot"
                     :auto-upload="false"
                     accept="image/*"
                     multiple
                     :disabled="submitting"
-                    :on-preview="() => {}"
-                    :on-success="() => {}"
-                    :on-error="() => {}"
-                    :on-exceed="() => {}"
-                    :on-progress="() => {}"
+                    style="display: none;"
+                  />   
+                    
+               
+                  <el-dialog
+                    v-model="urlInputDialogVisible"
+                    title="通过URL添加图片"
+                    width="500px"
+                    :close-on-click-modal="false"
                   >
-                    <!--template #file="{ file }">
-                      <img  v-if="!screenshotLoading && file.url" class="el-upload-list__item-thumbnail" :src="file.url" alt="">
-                      <label class="el-upload-list__item-status-label">
-                        <i class="el-icon el-icon--upload-success el-icon--check"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path fill="currentColor" d="M406.656 706.944 195.84 496.256a32 32 0 1 0-45.248 45.248l256 256 512-512a32 32 0 0 0-45.248-45.248L406.592 706.944z"></path></svg></i>
-                      </label>
-                        
-                        <span class="el-upload-list__item-actions">
-                          <el-icon
-            class="el-upload-list__item-delete"
-            @click.stop="removeScreenshot(file)"
-          >
-            <delete />
-          </el-icon>
-                         </span>
-                       
-                      
-                        </template-->
-                     
-                    <el-icon  v-if="!screenshotLoading"><Plus /></el-icon>
-                    <div v-else class="upload-loading">
-                      <el-icon  class="is-loading"><Loading /></el-icon>
-                    </div>
-                  </el-upload>
+                    <el-input
+                      v-model="screenshotUrl"
+                      placeholder="请输入图片URL"
+                      clearable
+                      @keyup.enter="addScreenshotByUrl"
+                    />
+                    <template #footer>
+                      <el-button @click="urlInputDialogVisible = false">取消</el-button>
+                      <el-button type="primary" :loading="screenshotLoading" @click="addScreenshotByUrl">
+                        添加
+                      </el-button>
+                    </template>
+                  </el-dialog>
                 </div>
               </el-form-item>
             </el-col>
@@ -511,6 +622,91 @@ const posterUrl = computed(() => {
   flex-direction: column;
 }
 
+/* 截图网格布局 */
+.screenshot-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
+  gap: 10px !important;
+  width: 100%;
+}
+
+/* 截图项和上传按钮的通用样式 */
+.screenshot-item,
+.upload-method-item {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: 1px dashed #d7dce6;
+  background-color: #fafbfc;
+  transition: all 0.3s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer
+}
+
+/* 截图项特有样式 */
+.screenshot-item {
+  overflow: hidden;
+  
+}
+
+/* 截图缩略图 */
+.screenshot-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 截图操作区 */
+.screenshot-actions {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.3s;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.screenshot-item:hover .screenshot-actions {
+  opacity: 1;
+}
+
+/* 删除按钮 */
+.screenshot-delete {
+  font-size: 20px;
+  color: #fff;
+  cursor: pointer;
+}
+
+/* 上传方式选择区域 */
+/* .upload-method-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  cursor: pointer;
+} */
+
+.upload-method-item:hover {
+  border-color: #409eff;
+  background-color: rgba(64, 158, 255, 0.05);
+}
+
+.upload-method-item span {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #606266;
+}
+
 /* 取消截图列表项的动画效果 */
 .custom-screenshot-upload .el-upload-list__item {
   transition: none !important;
@@ -617,7 +813,12 @@ const posterUrl = computed(() => {
   margin: 0 !important;
   width: 100% !important;
   padding: 0 !important;
-}*/
+}
+
+/* 隐藏默认的上传按钮 */
+.custom-screenshot-upload .el-upload--picture-card {
+  display: none !important;
+}
 
 /* 截图项 */
 .custom-screenshot-upload .el-upload-list__item {

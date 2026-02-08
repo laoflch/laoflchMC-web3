@@ -93,6 +93,12 @@ const handleEditSuccess = () => {
   loadMovies()
 }
 
+const loadMovies= () => {
+  updatePageSize()
+  load()
+
+}
+
 const getColumnName = (key) => {
   const reverseMap = Object.entries(cols_index.value).reduce((acc, [name, value]) => {
     acc[value] = name
@@ -351,7 +357,7 @@ const addImageByUrl = async () => {
     <el-row :gutter="{ xs: 10, sm: 15, md: 20, lg: 20, xl: 20, xxl: 25, xxxl: 30 }" v-loading="loading">
       <el-col 
         v-for="movie in movies" 
-        :key="movie[cols_index.imdb_id]" 
+        :key="movie[cols_index.default]" 
         :xs="24" 
         :sm="12" 
         :md="8" 

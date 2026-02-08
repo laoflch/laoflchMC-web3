@@ -42,8 +42,10 @@ export async function createMovie(payload) {
 }
 
 export async function updateMovie(payload) {
-  const data = { table: 'movie_info', data: payload }
-  return http.post('/api/storage/update', data)
+  const { row_key, ...newdata } = payload;
+  const data = { table: 'movie_info',"row_key":row_key, data: newdata }
+  console.log('updateMovie payload:', newdata)
+  return http.post('/api/storage/update/row', data)
 }
 
 export async function deleteMovie(id) {

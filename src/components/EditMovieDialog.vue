@@ -1,8 +1,9 @@
 <script setup>
 import { ref, watch, computed, nextTick } from 'vue'
-import { Plus, Loading } from '@element-plus/icons-vue'
+import { Plus, Loading, Picture, InfoFilled, StarFilled } from '@element-plus/icons-vue'
 import { updateMovie, uploadImage } from '@/services/movies'
 import { ElMessage } from 'element-plus'
+import { loadImdbImage } from '../services/movies'
 
 const props = defineProps({
   modelValue: {
@@ -33,6 +34,8 @@ const posterLoading = ref(false)
 const screenshotLoading = ref(false)
 const screenshotUrl = ref('')
 const urlInputDialogVisible = ref(false)
+const batchUrlMode = ref(false)
+const batchUrls = ref('')
 
 const defaultForm = () => ({
   row_key:'',
@@ -106,7 +109,8 @@ watch(
         const newItems = []
         if (Array.isArray(images)) {
           for (const imgId of images) {
-            if(imgId && imgId.length > 0 &&imgId!==""){
+            if(true){
+            // imgId && imgId.length > 0 &&imgId!==""){
             newItems.push({
               uid: imgId,
               name: imgId,
@@ -117,6 +121,11 @@ watch(
           }
         }
         screenshotFileList.value = newItems
+        
+        // 如果没有设置海报且有剧照，则默认将第一张剧照设置为海报
+        if (!editForm.value.image && newItems.length > 0) {
+          editForm.value.image = newItems[0].uid
+        }
       } catch {
         // 直接赋值为空数组，简洁高效
         screenshotFileList.value = []
@@ -172,7 +181,11 @@ const handleScreenshotChange = async (file) => {
     //   screenshotFileList.value.push({ uid: id, name: id, status: 'success', url: `${props.imgBaseUrl}/api/image/thumbnail/movie_image/${id}` })
     // }
 
-    //screenshotFileList.value[screenshotFileList.value.length - 1].status = 'success'
+    // 如果没有设置海报，则将第一张剧照设置为海报
+    if (!editForm.value.image) {
+      editForm.value.image = id
+    }
+
     ElMessage.success('剧照上传成功')
   } catch (err) {
     ElMessage.error(`剧照上传失败：${err.message || err}`)
@@ -182,16 +195,25 @@ const handleScreenshotChange = async (file) => {
 }
 
 const removeScreenshot = (item) => {
+  // 检查是否删除的是当前海报
+  const isCurrentPoster = item.uid === editForm.value.image
+  
   // 从截图列表中移除
   const index = screenshotFileList.value.findIndex((f) => f.uid === item.uid)
   if (index !== -1) {
     screenshotFileList.value.splice(index, 1)
   }
+  
   // 同步更新 editForm.images
   nextTick(() => {
     try {
       const ids = screenshotFileList.value.map((f) => f.uid).filter(Boolean)
       editForm.value.images = JSON.stringify(ids)
+      
+      // 如果删除的是当前海报，则设置第一张剧照为海报
+      if (isCurrentPoster && screenshotFileList.value.length > 0) {
+        editForm.value.image = screenshotFileList.value[0].uid
+      }
     } catch {
       // ignore
     }
@@ -206,27 +228,12 @@ const addScreenshotByUrl = async () => {
   
   screenshotLoading.value = true
   try {
-    // 通过fetch获取图片
-    const response = await fetch(screenshotUrl.value, {
-      mode: 'cors',
-      credentials: 'omit'
-    })
-    
-    if (!response.ok) {
-      throw new Error(`获取图片失败: ${response.statusText}`)
-    }
-    
-    // 将响应转换为Blob
-    const blob = await response.blob()
-    
-    // 创建File对象
-    const file = new File([blob], `screenshot_${Date.now()}.${blob.type.split('/')[1] || 'jpg'}`, {
-      type: blob.type
-    })
-    
-    // 上传图片
-    const res = await uploadImage(file, 'movie_image')
+    // 调用后端接口从URL抓取图片
+
+
+    const res = await loadImdbImage(screenshotUrl.value)
     const id = res.data
+    
     
     // 更新images数组
     let images = []
@@ -245,6 +252,11 @@ const addScreenshotByUrl = async () => {
       status: 'success',
       url: `${props.imgBaseUrl}/api/image/thumbnail/movie_image/${id}`
     })
+
+    // 如果没有设置海报，则将第一张剧照设置为海报
+    if (!editForm.value.image) {
+      editForm.value.image = id
+    }
     
     // 清空URL输入框
     screenshotUrl.value = ''
@@ -271,7 +283,95 @@ const triggerFileInput = () => {
 
 const showUrlInput = () => {
   // 显示URL输入对话框
+  batchUrlMode.value = false
   urlInputDialogVisible.value = true
+}
+
+const setAsPoster = (item) => {
+  // 设置选中的剧照为封面海报
+  editForm.value.image = item.uid
+  ElMessage.success('已设置为封面海报')
+}
+
+const addScreenshotsByBatchUrls = async () => {
+  if (!batchUrls.value) {
+    ElMessage.warning('请输入图片URL，每行一个')
+    return
+  }
+
+  // 按行分割URL，过滤空行
+  const urls = batchUrls.value.split('\n').map(url => url.trim()).filter(url => url)
+  
+  if (urls.length === 0) {
+    ElMessage.warning('请输入有效的图片URL')
+    return
+  }
+
+  screenshotLoading.value = true
+  let successCount = 0
+  let failCount = 0
+  
+  try {
+    // 更新images数组
+    let images = []
+    try {
+      images = JSON.parse(editForm.value.images || '[]')
+    } catch {
+      images = []
+    }
+
+    // 逐个处理URL
+    for (const url of urls) {
+      try {
+        // 调用后端接口从URL抓取图片
+        const res = await loadImdbImage(url)
+        const id = res.data
+        
+
+        // 添加到images数组
+        images.push(id)
+
+        // 更新截图列表
+        screenshotFileList.value.push({
+          uid: id,
+          name: id,
+          status: 'success',
+          url: `${props.imgBaseUrl}/api/image/thumbnail/movie_image/${id}`
+        })
+
+        successCount++
+      } catch (err) {
+        console.error(`添加剧照失败 (${url}):`, err)
+        failCount++
+      }
+    }
+
+    // 更新images数组
+    editForm.value.images = JSON.stringify(images)
+    
+    // 如果没有设置海报且有剧照，则将第一张剧照设置为海报
+    if (!editForm.value.image && screenshotFileList.value.length > 0) {
+      editForm.value.image = screenshotFileList.value[0].uid
+    }
+
+    // 显示结果
+    if (successCount > 0) {
+      ElMessage.success(`成功添加 ${successCount} 张剧照`)
+    }
+    if (failCount > 0) {
+      ElMessage.warning(`${failCount} 张剧照添加失败`)
+    }
+
+    // 清空URL输入框
+    batchUrls.value = ''
+    // 关闭对话框
+    urlInputDialogVisible.value = false
+  } catch (err) {
+    console.error('批量添加剧照失败:', err)
+    ElMessage.error(`批量添加剧照失败：${err.message || err}`)
+  } finally {
+    screenshotLoading.value = false
+  }
 }
 
 const handleEditMovie = async () => {
@@ -312,11 +412,11 @@ const handleDialogClose = () => closeDialog()
 
 const posterUrl = computed(() => {
   const img = editForm.value.image
-  return img ? `${props.imgBaseUrl}/api/image/thumbnail/movie_posters/${img}` : ''
+  return img ? `${props.imgBaseUrl}/api/image/thumbnail/movie_image/${img}` : ''
 })
 
 const getScreenshotUrl = (url) => {
-  return url || `${props.imgBaseUrl}/api/image/thumbnail/movie_posters/64dfe4e8-a734-3e30-83eb-c241d6f5aa57`
+  return url || `${props.imgBaseUrl}/api/image/thumbnail/movie_image/b11892f2-c42c-3b2e-ad7c-eebaffab5bc4`
 }
 </script>
 
@@ -426,24 +526,23 @@ const getScreenshotUrl = (url) => {
           <el-row :gutter="24">
             <el-col :xs="24" :sm="24" :md="8" :lg="6">
               <el-form-item label="封面海报">
-                <el-upload
-                  class="poster-uploader"
-                  :show-file-list="false"
-                  :on-change="handlePosterChange"
-                  :auto-upload="false"
-                  accept="image/*"
-                  :disabled="submitting"
-                >
-                  <div v-if="posterLoading" class="poster-loading">
-                    <el-icon class="is-loading"><Loading /></el-icon>
-                    <span>上传中</span>
+                <div class="poster-container">
+                  <div class="poster-uploader">
+                    <div v-if="posterLoading" class="poster-loading">
+                      <el-icon class="is-loading"><Loading /></el-icon>
+                      <span>加载中</span>
+                    </div>
+                    <img v-else-if="editForm.image" :src="posterUrl" class="poster-preview" alt="海报" />
+                    <div v-else class="poster-empty">
+                      <el-icon><Picture /></el-icon>
+                      <span>请从剧照中选择</span>
+                    </div>
                   </div>
-                  <img v-else-if="editForm.image" :src="posterUrl" class="poster-preview" alt="海报" />
-                  <div v-else class="poster-empty">
-                    <el-icon><Plus /></el-icon>
-                    <span>点击上传</span>
+                  <div class="poster-hint" v-if="screenshotFileList.length > 0">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>点击剧照图片可设置为封面海报</span>
                   </div>
-                </el-upload>
+                </div>
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="24" :md="16" :lg="18" class="screenshot-col">
@@ -456,10 +555,16 @@ const getScreenshotUrl = (url) => {
                       v-for="item in screenshotFileList"
                       :key="item.uid"
                       class="screenshot-item"
+                      :class="{ 'is-poster': item.uid === editForm.image }"
+                      @click="setAsPoster(item)"
                     >
                       <img :src="getScreenshotUrl(item.url)" class="screenshot-thumbnail" alt="截图" />
                       <div class="screenshot-actions">
-                        <el-icon class="screenshot-delete" @click="removeScreenshot(item)">
+                        <el-icon v-if="item.uid === editForm.image" class="screenshot-poster-mark">
+                          
+                          <StarFilled />
+                        </el-icon>
+                        <el-icon class="screenshot-delete" @click.stop="removeScreenshot(item)">
                           <delete />
                         </el-icon>
                       </div>
@@ -493,19 +598,35 @@ const getScreenshotUrl = (url) => {
                   <el-dialog
                     v-model="urlInputDialogVisible"
                     title="通过URL添加图片"
-                    width="500px"
+                    width="600px"
                     :close-on-click-modal="false"
                   >
-                    <el-input
-                      v-model="screenshotUrl"
-                      placeholder="请输入图片URL"
-                      clearable
-                      @keyup.enter="addScreenshotByUrl"
-                    />
+                    <div v-if="!batchUrlMode">
+                      <el-input
+                        v-model="screenshotUrl"
+                        placeholder="请输入图片URL"
+                        clearable
+                        @keyup.enter="addScreenshotByUrl"
+                      />
+                    </div>
+                    <div v-else>
+                      <el-input
+                        v-model="batchUrls"
+                        type="textarea"
+                        :rows="8"
+                        placeholder="请输入图片URL，每行一个"
+                        clearable
+                      />
+                      <div style="margin-top: 10px; color: #909399; font-size: 12px;">
+                        提示：每行输入一个图片URL，系统将逐个添加图片
+                      </div>
+                    </div>
                     <template #footer>
                       <el-button @click="urlInputDialogVisible = false">取消</el-button>
-                      <el-button type="primary" :loading="screenshotLoading" @click="addScreenshotByUrl">
-                        添加
+                      <el-button v-if="!batchUrlMode" @click="batchUrlMode = true">批量添加</el-button>
+                      <el-button v-if="batchUrlMode" @click="batchUrlMode = false">返回单个添加</el-button>
+                      <el-button type="primary" :loading="screenshotLoading" @click="batchUrlMode ? addScreenshotsByBatchUrls() : addScreenshotByUrl()">
+                        {{ batchUrlMode ? '批量添加' : '添加' }}
                       </el-button>
                     </template>
                   </el-dialog>
@@ -537,6 +658,28 @@ const getScreenshotUrl = (url) => {
   padding: 20px 24px;
   max-height: 70vh;
   overflow-y: auto;
+}
+
+.edit-movie-dialog :deep(.el-dialog__headerbtn) {
+  font-size: 24px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #f5f7fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+}
+
+.edit-movie-dialog :deep(.el-dialog__close) {
+  font-size: 40px;
+  font-weight: bold;
+}
+
+.edit-movie-dialog :deep(.el-dialog__headerbtn:hover) {
+  background-color: #e6f7ff;
+  color: #409eff;
 }
 
 .form-sections {
@@ -575,7 +718,7 @@ const getScreenshotUrl = (url) => {
   overflow: hidden;
   transition: border-color 0.3s;
   display: flex;
-  align-items: center;
+  /*align-items: center;*/
   justify-content: center;
 }
 
@@ -605,6 +748,7 @@ const getScreenshotUrl = (url) => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  overflow: hidden;
 }
 
 .upload-loading {
@@ -705,6 +849,45 @@ const getScreenshotUrl = (url) => {
   margin-top: 8px;
   font-size: 13px;
   color: #606266;
+}
+
+/* 海报容器 */
+.poster-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+/* 海报提示 */
+.poster-hint {
+  display: flex;
+  align-items: center;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #f0f7ff;
+  border-radius: 4px;
+  color: #409eff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.poster-hint .el-icon {
+  margin-right: 6px;
+}
+
+/* 作为海报的剧照项 */
+.screenshot-item.is-poster {
+  border: 2px solid #409eff;
+}
+
+/* 海报标记图标 */
+.screenshot-poster-mark {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 20px;
+  color: #f5a623;
+  z-index: 1;
 }
 
 /* 取消截图列表项的动画效果 */

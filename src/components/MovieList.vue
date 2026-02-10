@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, computed } from 'vue'
 import { ArrowLeft, ArrowRight, Plus, Edit } from '@element-plus/icons-vue'
 import { listMovies, uploadImage } from '@/services/movies'
 import { ElMessage } from 'element-plus'
@@ -53,7 +53,7 @@ const urlForm = ref({
 })
 
 const handleImageError = (e) => {
-  e.target.src = `${imgBaseUrl}/api/image/thumbnail/movie_posters/64dfe4e8-a734-3e30-83eb-c241d6f5aa57`
+  e.target.src = `${imgBaseUrl}/api/image/thumbnail/movie_posters/39d129b5-d03d-353d-a20e-6a324db817a3`
 }
 
 const showDetail = (movie) => {
@@ -204,144 +204,190 @@ const handleAddSuccess = () => {
 
 
 
-const handlePosterChange = async (file) => {
-  try {
-    const posterRes = await uploadImage(file.raw, 'movie_posters')
-    addForm.value.image = posterRes.data 
-    ElMessage.success('海报上传成功')
-  } catch (err) {
-    ElMessage.error(`海报上传失败：${err.message || err}`)
-  }
-}
+// const handlePosterChange = async (file) => {
+//   try {
+//     const posterRes = await uploadImage(file.raw, 'movie_posters')
+//     addForm.value.image = posterRes.data 
+//     ElMessage.success('海报上传成功')
+//   } catch (err) {
+//     ElMessage.error(`海报上传失败：${err.message || err}`)
+//   }
+// }
 
-const handleScreenshotChange = async (file, fileList) => {
-  try {
-    const screenshotRes = await uploadImage(file.raw, 'movie_image')
-    const screenshotId = screenshotRes.data // 将上传成功的图片ID添加到images数组中
+// const handleScreenshotChange = async (file, fileList) => {
+//   try {
+//     const screenshotRes = await uploadImage(file.raw, 'movie_image')
+//     const screenshotId = screenshotRes.data // 将上传成功的图片ID添加到images数组中
     
-    // 更新截图文件列表，只保留未上传的文件
-    addForm.value.screenshotFiles = fileList
-      .filter(f => f.raw !== file.raw)
-      .map(f => f.raw)
+//     // 更新截图文件列表，只保留未上传的文件
+//     addForm.value.screenshotFiles = fileList
+//       .filter(f => f.raw !== file.raw)
+//       .map(f => f.raw)
     
-    // 将上传成功的图片ID添加到images数组中
-    let images = []
-    try {
-      images = JSON.parse(addForm.value.images)
-    } catch (e) {
-      images = []
-    }
-    images.push(screenshotId)
-    addForm.value.images = JSON.stringify(images)
+//     // 将上传成功的图片ID添加到images数组中
+//     let images = []
+//     try {
+//       images = JSON.parse(addForm.value.images)
+//     } catch (e) {
+//       images = []
+//     }
+//     images.push(screenshotId)
+//     addForm.value.images = JSON.stringify(images)
     
-    ElMessage.success('剧照上传成功')
-  } catch (err) {
-    ElMessage.error(`剧照上传失败：${err.message || err}`)
-  }
-}
+//     ElMessage.success('剧照上传成功')
+//   } catch (err) {
+//     ElMessage.error(`剧照上传失败：${err.message || err}`)
+//   }
+// }
 
-const handleAddMovie = async () => {
-  if (!addFormRef.value) return
+// const handleAddMovie = async () => {
+//   if (!addFormRef.value) return
 
-  await addFormRef.value.validate(async (valid) => {
-    if (valid) {
-      submitting.value = true
-      try {
-        // 过滤掉不需要提交的字段
-        const { posterFile, screenshotFiles, ...movieData } = addForm.value
+//   await addFormRef.value.validate(async (valid) => {
+//     if (valid) {
+//       submitting.value = true
+//       try {
+//         // 过滤掉不需要提交的字段
+//         const { posterFile, screenshotFiles, ...movieData } = addForm.value
         
-        // 提交电影信息
-        await createMovie(movieData)
-        ElMessage.success('添加电影成功')
-        addDialogVisible.value = false
-        // 刷新电影列表
-        await load()
-      } catch (err) {
-        ElMessage.error(`添加电影失败：${err.message || err}`)
-      } finally {
-        submitting.value = false
+//         // 提交电影信息
+//         await createMovie(movieData)
+//         ElMessage.success('添加电影成功')
+//         addDialogVisible.value = false
+//         // 刷新电影列表
+//         await load()
+//       } catch (err) {
+//         ElMessage.error(`添加电影失败：${err.message || err}`)
+//       } finally {
+//         submitting.value = false
+//       }
+//     }
+//   })
+// }
+
+// // 打开上传剧照对话框
+// const openScreenshotUpload = () => {
+//   newScreenshotFiles.value = []
+//   screenshotUploadVisible.value = true
+// }
+
+// // 处理新增剧照文件变化
+// const handleNewScreenshotChange = async (file, fileList) => {
+//   try {
+//     uploadingScreenshots.value = true
+//     const screenshotRes = await uploadImage(file.raw, 'movie_image')
+//     const screenshotId = screenshotRes.data
+
+//     // 更新截图文件列表
+//     newScreenshotFiles.value = fileList
+
+//     // 将上传成功的图片ID添加到当前电影的images数组中
+//     if (selectedMovie.value && selectedMovie.value[cols_index.value.images]) {
+//       let images = [...selectedMovie.value[cols_index.value.images]]
+//       images.push(screenshotId)
+//       selectedMovie.value[cols_index.value.images] = images
+//     }
+
+//     ElMessage.success('剧照上传成功')
+//   } catch (err) {
+//     ElMessage.error(`剧照上传失败：${err.message || err}`)
+//   } finally {
+//     uploadingScreenshots.value = false
+//   }
+// }
+
+// // 关闭上传剧照对话框
+// const closeScreenshotUpload = () => {
+//   screenshotUploadVisible.value = false
+//   newScreenshotFiles.value = []
+//   urlForm.value.imageUrl = ''
+// }
+
+
+// // 通过URL添加图片
+// const addImageByUrl = async () => {
+//   if (!urlForm.value.imageUrl) {
+//     ElMessage.warning('请输入图片URL')
+//     return
+//   }
+
+//   try {
+//     uploadingScreenshots.value = true
+
+//     // 从URL下载图片并上传到服务器
+//     const response = await fetch(urlForm.value.imageUrl)
+//     if (!response.ok) {
+//       throw new Error('无法获取图片')
+//     }
+
+//     const blob = await response.blob()
+//     const file = new File([blob], urlForm.value.imageUrl, { type: blob.type })
+
+//     // 上传图片到服务器
+//     const screenshotRes = await uploadImage(file, 'movie_image')
+//     const screenshotId = screenshotRes.data
+
+//     // 将上传成功的图片ID添加到当前电影的images数组中
+//     if (selectedMovie.value && selectedMovie.value[cols_index.value.images]) {
+//       let images = [...selectedMovie.value[cols_index.value.images]]
+//       images.push(screenshotId)
+//       selectedMovie.value[cols_index.value.images] = images
+//     }
+
+//     ElMessage.success('剧照添加成功')
+//     urlForm.value.imageUrl = ''
+//   } catch (err) {
+//     ElMessage.error(`剧照添加失败：${err.message || err}`)
+//   } finally {
+//     uploadingScreenshots.value = false
+//   }
+
+
+// }
+
+  // 过滤后的电影详情项
+const filteredMovieDetails = computed(() => {
+  if (!selectedMovie.value) return []
+  
+   const re=Object.entries(selectedMovie.value)
+    .filter(([key]) => key !== String(cols_index.value.images) && key !== String(cols_index.value.brief_introduction))
+    .map(([key, value]) => {
+      switch(key) {
+        case String(cols_index.value.name_ch):
+          return { key, value, label: '中文名称' }
+        case String(cols_index.value.name_en):
+          return { key, value, label: '英文名称' }
+        case String(cols_index.value.release_date):
+          return { key, value, label: '上映日期' }
+        case String(cols_index.value.duration):
+          return { key, value, label: '时长' }
+        case String(cols_index.value.director):
+          return { key, value, label: '导演' }
+        case String(cols_index.value.actors):
+          return { key, value, label: '演员' }
+        case String(cols_index.value.genre):
+          return { key, value, label: '类型' }
+        case String(cols_index.value.country):
+          return { key, value, label: '国家' }
+        case String(cols_index.value.language):
+          return { key, value, label: '语言' }
+        case String(cols_index.value.imdb_id):
+          return { key, value, label: 'IMDB ID' }
+        case String(cols_index.value.douban_id):
+          return { key, value, label: '豆瓣 ID' }
+        case String(cols_index.value.year):
+          return { key, value, label: '年份' }
+        case String(cols_index.value.rating):
+          return { key, value, label: '评分' }
+  
+        default:
+          return { key, value }
       }
-    }
-  })
-}
+    })
+    console.log('filteredMovieDetails', selectedMovie.value, re,cols_index.value.images)
 
-// 打开上传剧照对话框
-const openScreenshotUpload = () => {
-  newScreenshotFiles.value = []
-  screenshotUploadVisible.value = true
-}
-
-// 处理新增剧照文件变化
-const handleNewScreenshotChange = async (file, fileList) => {
-  try {
-    uploadingScreenshots.value = true
-    const screenshotRes = await uploadImage(file.raw, 'movie_image')
-    const screenshotId = screenshotRes.data
-
-    // 更新截图文件列表
-    newScreenshotFiles.value = fileList
-
-    // 将上传成功的图片ID添加到当前电影的images数组中
-    if (selectedMovie.value && selectedMovie.value[cols_index.value.images]) {
-      let images = [...selectedMovie.value[cols_index.value.images]]
-      images.push(screenshotId)
-      selectedMovie.value[cols_index.value.images] = images
-    }
-
-    ElMessage.success('剧照上传成功')
-  } catch (err) {
-    ElMessage.error(`剧照上传失败：${err.message || err}`)
-  } finally {
-    uploadingScreenshots.value = false
-  }
-}
-
-// 关闭上传剧照对话框
-const closeScreenshotUpload = () => {
-  screenshotUploadVisible.value = false
-  newScreenshotFiles.value = []
-  urlForm.value.imageUrl = ''
-}
-
-
-// 通过URL添加图片
-const addImageByUrl = async () => {
-  if (!urlForm.value.imageUrl) {
-    ElMessage.warning('请输入图片URL')
-    return
-  }
-
-  try {
-    uploadingScreenshots.value = true
-
-    // 从URL下载图片并上传到服务器
-    const response = await fetch(urlForm.value.imageUrl)
-    if (!response.ok) {
-      throw new Error('无法获取图片')
-    }
-
-    const blob = await response.blob()
-    const file = new File([blob], urlForm.value.imageUrl, { type: blob.type })
-
-    // 上传图片到服务器
-    const screenshotRes = await uploadImage(file, 'movie_image')
-    const screenshotId = screenshotRes.data
-
-    // 将上传成功的图片ID添加到当前电影的images数组中
-    if (selectedMovie.value && selectedMovie.value[cols_index.value.images]) {
-      let images = [...selectedMovie.value[cols_index.value.images]]
-      images.push(screenshotId)
-      selectedMovie.value[cols_index.value.images] = images
-    }
-
-    ElMessage.success('剧照添加成功')
-    urlForm.value.imageUrl = ''
-  } catch (err) {
-    ElMessage.error(`剧照添加失败：${err.message || err}`)
-  } finally {
-    uploadingScreenshots.value = false
-  }
-}
+    return re
+})
 </script>
 
 <template>
@@ -368,7 +414,7 @@ const addImageByUrl = async () => {
       >
         <el-card class="movie-card" shadow="hover" @click="showDetail(movie)">
           <div class="movie-image">
-            <img :src="imgBaseUrl +'/api/image/thumbnail/movie_posters/'+ movie[cols_index.image]" :alt="movie[cols_index.name_ch]" @error="handleImageError">
+            <img :src="imgBaseUrl +'/api/image/thumbnail/movie_image/'+ movie[cols_index.image]" :alt="movie[cols_index.name_ch]" @error="handleImageError">
           </div>
           <div class="movie-info">
             <h4 class="movie-title">
@@ -407,18 +453,16 @@ const addImageByUrl = async () => {
       <div class="movie-detail" v-if="selectedMovie">
         <div class="detail-image">
           <div class="poster-wrapper">
-            <img :src="imgBaseUrl + '/api/image/origin/movie_posters/' + selectedMovie[cols_index.image]" :alt="selectedMovie[cols_index.name_ch]" @error="handleImageError">
+            <img :src="imgBaseUrl + '/api/image/origin/movie_image/' + selectedMovie[cols_index.image]" :alt="selectedMovie[cols_index.name_ch]" @error="handleImageError">
           </div>
           <div class="detail-items">
             <div class="detail-item">
               <span class="label">IMDB ID:</span>
               <span>{{ selectedMovie[cols_index.imdb_id] }}</span>
             </div>
-            <div class="detail-item" v-for="(value, key) in selectedMovie" :key="key">
-              <div v-if="key !== cols_index.images && key !== cols_index.brief_introduction">
-              <span class="label">{{ getColumnName(key) }}:</span>
-              <span>{{ value }}</span>
-            </div>
+          <div class="detail-item" v-for="item in filteredMovieDetails" :key="item.key">
+              <span class="label">{{ getColumnName(item.label?item.label:item.key) }}:</span>
+              <span>{{ item.value }}</span>              
             </div>
           </div>
         </div>
@@ -437,7 +481,7 @@ const addImageByUrl = async () => {
           <div class="screenshots-section" v-if="selectedMovie[cols_index.images] ">
             <div class="section-title-wrapper">
               <h4 class="section-title">电影剧照</h4>
-              <el-button type="primary" :icon="Plus" circle size="small" @click="openScreenshotUpload" title="添加剧照"></el-button>
+
             </div>
             <div class="screenshots-container">
               <div class="screenshot-nav" ref="screenshotNav">
@@ -479,60 +523,9 @@ const addImageByUrl = async () => {
       </template>
     </el-dialog>
 
-    <!-- 上传剧照对话框 -->
-    <el-dialog
-      v-model="screenshotUploadVisible"
-      title="添加电影剧照"
-      width="60%"
-      :close-on-click-modal="false"
-    >
-      <el-tabs v-model="activeUploadTab" class="upload-tabs">
-        <el-tab-pane label="上传本地图片" name="upload">
-          <el-upload
-            v-model:file-list="newScreenshotFiles"
-            list-type="picture-card"
-            :on-change="handleNewScreenshotChange"
-            :auto-upload="false"
-            accept="image/*"
-            multiple
-            :disabled="uploadingScreenshots"
-          >
-            <el-icon><Plus /></el-icon>
-          </el-upload>
-        </el-tab-pane>
-        <el-tab-pane label="通过URL添加" name="url">
-          <div class="url-upload-container">
-            <el-form :model="urlForm" label-width="80px">
-              <el-form-item label="图片URL">
-                <el-input 
-                  v-model="urlForm.imageUrl" 
-                  placeholder="请输入图片URL"
-                  clearable
-                >
-                  <template #append>
-                    <el-button 
-                      @click="addImageByUrl" 
-                      :loading="uploadingScreenshots"
-                      :disabled="!urlForm.imageUrl"
-                    >
-                      添加
-                    </el-button>
-                  </template>
-                </el-input>
-              </el-form-item>
-            </el-form>
-            <div class="url-preview" v-if="urlForm.imageUrl">
-              <img :src="urlForm.imageUrl" alt="URL预览">
-            </div>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="closeScreenshotUpload">关闭</el-button>
-        </div>
-      </template>
-    </el-dialog>
+
+
+
 
     <!-- 新增电影对话框 -->
     <AddMovieDialog
@@ -618,6 +611,28 @@ const addImageByUrl = async () => {
   background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
   max-height: none;
   overflow: visible;
+}
+
+.movie-detail-dialog .el-dialog__headerbtn {
+  font-size: 24px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #f5f7fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+}
+
+.movie-detail-dialog .el-dialog__close {
+  font-size: 40px;
+  font-weight: bold;
+}
+
+.movie-detail-dialog .el-dialog__headerbtn:hover {
+  background-color: #e6f7ff;
+  color: #409eff;
 }
 
 .movie-detail {

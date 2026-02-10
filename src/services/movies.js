@@ -44,7 +44,7 @@ export async function createMovie(payload) {
 export async function updateMovie(payload) {
   const { row_key, ...newdata } = payload;
   const data = { table: 'movie_info',"row_key":row_key, data: newdata }
-  console.log('updateMovie payload:', newdata)
+  //console.log('updateMovie payload:', newdata)
   return http.post('/api/storage/update/row', data)
 }
 
@@ -60,4 +60,14 @@ export async function uploadImage(file, type = 'movie_posters') {
   console.log('uploadImage formData:', formData)
   
   return http.post(`/api/image/upload/`, formData)
+}
+
+export async function loadImdbImage(url) {
+ const data = {
+      imdb_image_name: url,
+      name_space: "movie_image",
+      image_comment:"",
+      image_text:""
+ }
+  return http.post(`/api/image/upload/from-imdb`, data)
 }

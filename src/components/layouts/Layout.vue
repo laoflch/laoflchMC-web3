@@ -56,6 +56,9 @@ const handleLogout = async () => {
     <el-container>
       <el-header>
         <div class="header-inner">
+          <div class="logo">
+            <img src="@/assets/logo.svg" alt="LAOFLCHMC" class="logo-image" />
+          </div>
           <el-menu :default-active="activeIndex" class="el-menu-demo" mode="horizontal" style="flex:1">
             <template v-for="item in visibleNav" :key="item.name">
               <el-menu-item :index="item.name" @click="goTo(item.path)">
@@ -123,6 +126,9 @@ const handleLogout = async () => {
 .app-layout > .el-container { flex: 1; display: flex; flex-direction: column; }
 .el-header { background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); padding: 0 16px; z-index: 10 }
 .header-inner { display:flex; align-items:center; justify-content:space-between }
+.logo { margin-right: 40px; cursor: pointer; transition: all 0.3s ease; }
+.logo:hover { transform: scale(1.05); }
+.logo-image { height: 40px; width: auto; }
 .header-user { margin-left: 12px }
 .content-wrapper { margin: 0 auto; width: 80% }
 .layout-main { background-color: #f5f7fa; padding: 20px; flex: 1; box-sizing: border-box }

@@ -21,6 +21,12 @@ const routes = [
     meta: { title: '电影仓库' }
   },
   {
+    path: '/data-management',
+    name: 'DataManagement',
+    component: () => import('../views/DataManagement.vue'),
+    meta: { title: '数据管理' }
+  },
+  {
     path: '/profile',
     name: 'Profile',
     component: () => import('../views/Profile.vue'),

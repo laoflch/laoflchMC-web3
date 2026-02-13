@@ -8,5 +8,6 @@ export default [
 
   { name: 'Profile', title: '个人资料', path: '/profile', icon: 'User', allowedRoles: ['*'] },
   // 仅管理员/内容编辑可见
-  { name: 'Movies', title: '电影仓库', path: '/movies', icon: 'Film', allowedRoles: ['admin', 'editor'] }
+  { name: 'Movies', title: '电影仓库', path: '/movies', icon: 'Film', allowedRoles: ['admin', 'editor'] },
+  { name: 'DataManagement', title: '数据管理', path: '/data-management', icon: 'Setting', allowedRoles: ['admin'] }
 ]

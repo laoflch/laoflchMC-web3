@@ -115,7 +115,7 @@ const handleLogout = async () => {
       </el-main>
 
       <el-footer>
-        <p>© 2023 Vue3 + Element Plus 示例项目</p>
+        <p>© 2026 LAOFLCHMC WEB</p>
       </el-footer>
     </el-container>
   </div>

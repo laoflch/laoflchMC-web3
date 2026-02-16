@@ -12,7 +12,8 @@ import {
   deleteData,
   batchDeleteData,
   exportData,
-  importData
+  importData,
+  alterTableSchema
 } from '@/services/dataManagement'
 
 // 当前选中的表
@@ -52,6 +53,10 @@ const isAddMode = ref(false)
 const importDialogVisible = ref(false)
 // 导入文件
 const importFile = ref(null)
+// 修改表结构对话框
+const alterSchemaDialogVisible = ref(false)
+// 临时表结构数据
+const tempTableSchema = ref([])
 
 // 加载表列表
 const loadTables = async () => {
@@ -102,7 +107,7 @@ const loadTableData = async () => {
     })
     tableData.value = data.data.data || []
     colsIndex.value = data.data.cols_index || {}
-    pagination.value.total = data.data.total//data.total || 0
+    pagination.value.total = data.data.total+1//data.total || 0
   } catch (error) {
     ElMessage.error('加载表数据失败: ' + error.message)
   } finally {
@@ -289,6 +294,65 @@ const getFieldType = (column) => {
   return 'text'
 }
 
+// 打开修改表结构对话框
+const openAlterSchemaDialog = () => {
+  // 深拷贝当前表结构
+  tempTableSchema.value = JSON.parse(JSON.stringify(tableSchema.value))
+  alterSchemaDialogVisible.value = true
+}
+
+// 添加新字段
+const addField = () => {
+  tempTableSchema.value.push({
+    name: '',
+    type: 1,
+    comment: '',
+    required: false,
+    primaryKey: false,
+    autoIncrement: false,
+    width: 120,
+    sortable: true
+  })
+}
+
+// 删除字段
+const removeField = (index) => {
+  tempTableSchema.value.splice(index, 1)
+}
+
+// 保存表结构修改
+const saveSchemaChanges = async () => {
+  if (!currentTable.value) return
+  
+  // 验证字段名是否为空
+  const hasEmptyName = tempTableSchema.value.some(field => !field.name || field.name.trim() === '')
+  if (hasEmptyName) {
+    ElMessage.warning('字段名不能为空')
+    return
+  }
+  
+  // 验证字段名是否重复
+  const fieldNames = tempTableSchema.value.map(field => field.name)
+  const uniqueFieldNames = new Set(fieldNames)
+  if (fieldNames.length !== uniqueFieldNames.size) {
+    ElMessage.warning('字段名不能重复')
+    return
+  }
+
+  try {
+    loading.value = true
+    await alterTableSchema(currentTable.value, tempTableSchema.value)
+    ElMessage.success('表结构修改成功')
+    alterSchemaDialogVisible.value = false
+    await loadTableSchema()
+    await loadTableData()
+  } catch (error) {
+    ElMessage.error('修改表结构失败: ' + error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
 // 初始化
 onMounted(() => {
   loadTables()
@@ -325,6 +389,7 @@ onMounted(() => {
       <div class="action-buttons">
         <el-button type="primary" :icon="Icons.Plus" @click="openAddDialog">新增</el-button>
         <el-button type="danger" :icon="Icons.Delete" @click="handleBatchDelete" :disabled="selectedRows.length === 0">批量删除</el-button>
+        <el-button type="warning" :icon="Icons.Setting" @click="openAlterSchemaDialog">修改表结构</el-button>
         <el-dropdown @command="handleExport">
           <el-button :icon="Icons.Download">
             导出<el-icon class="el-icon--right"><component :is="Icons.ArrowDown" /></el-icon>
@@ -393,7 +458,7 @@ onMounted(() => {
     <el-dialog
       v-model="editDialogVisible"
       :title="isAddMode ? '新增数据' : '编辑数据'"
-      width="600px"
+      width="800px"
     >
       <el-form :model="editFormData" label-width="120px">
         <el-form-item
@@ -480,6 +545,75 @@ onMounted(() => {
         </div>
       </template>
     </el-dialog>
+
+    <!-- 修改表结构对话框 -->
+    <el-dialog
+      v-model="alterSchemaDialogVisible"
+      title="修改表结构"
+      width="800px"
+    >
+      <div class="schema-actions">
+        <el-button type="primary" :icon="Icons.Plus" @click="addField">添加字段</el-button>
+      </div>
+      
+      <el-table :data="tempTableSchema" border style="width: 100%; margin-top: 15px; table-layout: auto;" class="schema-table">
+        <el-table-column label="字段名">
+          <template #default="{ row }">
+            <el-input v-model="row.name" placeholder="请输入字段名" />
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="字段类型">
+          <template #default="{ row }">
+            <el-select v-model="row.type" placeholder="请选择类型">
+              <el-option label="文本" :value="1" />
+              <el-option label="整数" :value="2" />
+              <el-option label="浮点数" :value="3" />
+              <el-option label="日期时间" :value="4" />
+              <el-option label="布尔值" :value="5" />
+              <el-option label="二进制" :value="6" />
+              <el-option label="JSON" :value="7" />
+              <el-option label="数组" :value="8" />
+            </el-select>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="备注">
+          <template #default="{ row }">
+            <el-input v-model="row.comment" placeholder="请输入备注" />
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="属性">
+          <template #default="{ row }">
+            <div class="checkbox-group">
+              <el-checkbox v-model="row.required">必填</el-checkbox>
+              <el-checkbox v-model="row.primaryKey">主键</el-checkbox>
+              <!--el-checkbox v-model="row.autoIncrement">自增</el-checkbox-->
+            </div>
+          </template>
+        </el-table-column>
+        
+        <!--el-table-column label="宽度" width="100">
+          <template #default="{ row }">
+            <el-input-number v-model="row.width" :min="50" :max="500" size="small" />
+          </template>
+        </el-table-column-->
+        
+        <el-table-column label="操作">
+          <template #default="{ $index }">
+            <el-button type="danger" size="small" :icon="Icons.Delete" @click="removeField($index)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="alterSchemaDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="saveSchemaChanges">确定</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -514,5 +648,42 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.schema-actions {
+  margin-bottom: 15px;
+}
+
+.alter-schema-dialog :deep(.el-button--small) {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.alter-schema-dialog :deep(.schema-table) {
+  width: 100%;
+}
+
+.alter-schema-dialog :deep(.schema-table .el-table__body-wrapper) {
+  overflow-x: auto;
+}
+
+.alter-schema-dialog :deep(.el-checkbox) {
+  white-space: nowrap;
+}
+
+:deep(.checkbox-group) {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+}
+
+:deep(.checkbox-group .el-checkbox) {
+  margin-right: 0;
+  white-space: nowrap;
+}
+
+:deep(.checkbox-group .el-checkbox__label) {
+  white-space: nowrap;
 }
 </style>

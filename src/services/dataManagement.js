@@ -12,6 +12,11 @@ export async function getTableSchema(tableName) {
   return http.get(`/api/storage/table/schema/${tableName}`)
 }
 
+// 修改表结构
+export async function alterTableSchema(tableName, schema) {
+  return http.post(`/api/storage/table/schema/${tableName}`, schema)
+}
+
 // 获取表数据
 export async function getTableData(tableName, params = {}) {
   const { page = 1, pageSize = 10, filters = {}, sort = {} } = params

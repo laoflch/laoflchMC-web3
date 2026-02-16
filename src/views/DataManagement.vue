@@ -13,7 +13,5 @@ import DataManagement from '@/components/DataManagement.vue'
 </template>
 
 <style scoped>
-.data-management-view {
-  padding: 20px;
-}
+
 </style>

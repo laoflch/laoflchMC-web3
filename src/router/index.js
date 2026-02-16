@@ -27,6 +27,12 @@ const routes = [
     meta: { title: '数据管理' }
   },
   {
+    path: '/global-index-management',
+    name: 'GlobalIndexManagement',
+    component: () => import('../views/GlobalIndexManagement.vue'),
+    meta: { title: '全局索引管理' }
+  },
+  {
     path: '/profile',
     name: 'Profile',
     component: () => import('../views/Profile.vue'),

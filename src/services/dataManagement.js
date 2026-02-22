@@ -59,6 +59,7 @@ export async function insertData(tableName, data) {
 
 // 更新数据
 export async function updateData(tableName, rowKey, data) {
+  //console.log('updateData params:', { tableName, rowKey, data })
   return http.post('/api/storage/update/row', { table: tableName, row_key: rowKey, data })
 }
 
@@ -88,4 +89,10 @@ export async function importData(tableName, file) {
   formData.append('table', tableName)
   formData.append('file', file)
   return http.post('/api/storage/import', formData)
+}
+
+// 创建表
+export async function createTable(tableName, pk,schema) {
+  console.log('createTable params:', { tableName, pk,schema })
+  return http.post('/api/storage/create/table', { table_name: tableName,file_path:tableName, pk:pk,cols:schema })
 }

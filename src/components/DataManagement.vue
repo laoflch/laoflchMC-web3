@@ -13,7 +13,8 @@ import {
   batchDeleteData,
   exportData,
   importData,
-  alterTableSchema
+  alterTableSchema,
+  createTable
 } from '@/services/dataManagement'
 
 // 当前选中的表
@@ -24,7 +25,7 @@ const tables = ref([])
 const tableData = ref([])
 // 表结构
 const tableSchema = ref([])
-
+// 字段名到列索引的映射
 const colsIndex = ref({})
 // 加载状态
 const loading = ref(false)
@@ -57,6 +58,16 @@ const importFile = ref(null)
 const alterSchemaDialogVisible = ref(false)
 // 临时表结构数据
 const tempTableSchema = ref([])
+// 新建表对话框
+const createTableDialogVisible = ref(false)
+// 新建表表单数据
+const createTableForm = ref({
+  name: '',
+  schema: []
+})
+
+// 列索引到字段的映射
+const reversedColsIndex = ref({})//computed(() => [...colsIndex.value].reverse());
 
 // 加载表列表
 const loadTables = async () => {
@@ -107,6 +118,12 @@ const loadTableData = async () => {
     })
     tableData.value = data.data.data || []
     colsIndex.value = data.data.cols_index || {}
+
+    reversedColsIndex.value = Object.entries(colsIndex.value).reduce((acc, [name, key]) => {
+        acc[key] = name
+        return acc
+    }, {})
+    //reversedColsIndex.value = [...data.data.cols_index].reverse();
     pagination.value.total = data.data.total+1//data.total || 0
   } catch (error) {
     ElMessage.error('加载表数据失败: ' + error.message)
@@ -162,7 +179,19 @@ const openAddDialog = () => {
 // 打开编辑对话框
 const openEditDialog = (row) => {
   isAddMode.value = false
-  editFormData.value = { ...row }
+
+  console.log('reversedColsIndex:', reversedColsIndex.value)
+
+  editFormData.value = {}
+  Object.entries(row).forEach(([key, value]) => {
+    const reversedKey = reversedColsIndex.value[key]
+    if (reversedKey) {
+      editFormData.value[reversedKey] = value
+    }
+  })
+
+  console.log('editFormData:', editFormData.value)
+  //{ ...row }
   editDialogVisible.value = true
 }
 
@@ -177,7 +206,7 @@ const saveData = async () => {
       await insertData(currentTable.value, editFormData.value)
       ElMessage.success('添加成功')
     } else {
-      const rowKey = editFormData.value.row_key || editFormData.value.id
+      const rowKey = editFormData.value.row_key || editFormData.value.default
       await updateData(currentTable.value, rowKey, editFormData.value)
       ElMessage.success('更新成功')
     }
@@ -308,7 +337,7 @@ const addField = () => {
     type: 1,
     comment: '',
     required: false,
-    primaryKey: false,
+    primary_key: false,
     autoIncrement: false,
     width: 120,
     sortable: true
@@ -353,6 +382,100 @@ const saveSchemaChanges = async () => {
   }
 }
 
+// 打开新建表对话框
+const openCreateTableDialog = () => {
+  createTableForm.value = {
+    name: '',
+    schema: [{
+      name: 'id',
+      type: 2,
+      comment: '主键ID',
+      required: true,
+      primary_key: true,
+      autoIncrement: false,
+      width: 120,
+      sortable: true
+    }]
+  }
+  createTableDialogVisible.value = true
+}
+
+// 新建表中添加字段
+const addCreateTableField = () => {
+  createTableForm.value.schema.push({
+    name: '',
+    type: 1,
+    comment: '',
+    required: false,
+    primary_key: false,
+    autoIncrement: false,
+    width: 120,
+    sortable: true
+  })
+}
+
+// 新建表中删除字段
+const removeCreateTableField = (index) => {
+  createTableForm.value.schema.splice(index, 1)
+}
+
+// 创建表
+const handleCreateTable = async () => {
+  // 验证表名
+  if (!createTableForm.value.name || createTableForm.value.name.trim() === '') {
+    ElMessage.warning('请输入表名')
+    return
+  }
+
+  // 验证字段
+  if (createTableForm.value.schema.length === 0) {
+    ElMessage.warning('请至少添加一个字段')
+    return
+  }
+
+  // 验证字段名是否为空
+  const hasEmptyName = createTableForm.value.schema.some(field => !field.name || field.name.trim() === '')
+  if (hasEmptyName) {
+    ElMessage.warning('字段名不能为空')
+    return
+  }
+
+  // 验证字段名是否重复
+  const fieldNames = createTableForm.value.schema.map(field => field.name)
+  const uniqueFieldNames = new Set(fieldNames)
+  if (fieldNames.length !== uniqueFieldNames.size) {
+    ElMessage.warning('字段名不能重复')
+    return
+  }
+
+  try {
+    loading.value = true
+    // 将schema数组转换为以字段名为属性名的对象
+    const schemaObject = {}
+    // 提取primary_key字段组成pk数据
+    const pk = createTableForm.value.schema
+      .filter(field => field.primary_key)
+      .map(field => field.name)
+    createTableForm.value.schema.forEach(field => {
+      schemaObject[field.name] = {
+        name: field.name,
+        type: field.type,
+        comment: field.comment,
+        required: field.required,
+        primary_key: field.primary_key
+      }
+    })
+    await createTable(createTableForm.value.name, pk,schemaObject)
+    ElMessage.success('创建表成功')
+    createTableDialogVisible.value = false
+    await loadTables()
+  } catch (error) {
+    ElMessage.error('创建表失败: ' + error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
 // 初始化
 onMounted(() => {
   loadTables()
@@ -387,6 +510,7 @@ onMounted(() => {
 
       <!-- 操作按钮 -->
       <div class="action-buttons">
+        <el-button type="success" :icon="Icons.Plus" @click="openCreateTableDialog">新建表</el-button>
         <el-button type="primary" :icon="Icons.Plus" @click="openAddDialog">新增</el-button>
         <el-button type="danger" :icon="Icons.Delete" @click="handleBatchDelete" :disabled="selectedRows.length === 0">批量删除</el-button>
         <el-button type="warning" :icon="Icons.Setting" @click="openAlterSchemaDialog">修改表结构</el-button>
@@ -428,6 +552,7 @@ onMounted(() => {
             <span v-if="column.type==1 && row[colsIndex[column.name]]?.length > 50">
               {{ row[colsIndex[column.name]].substring(0, 50) }}...
             </span>
+            <span v-else-if="column.type==4">{{ row[colsIndex[column.name]]}}</span>
             <span v-else>{{ row[colsIndex[column.name]] }}</span>
              
           </template>
@@ -470,8 +595,8 @@ onMounted(() => {
           <!-- 数字输入 -->
           <el-input-number
             v-if="getFieldType(column) === 'number'"
-            v-model="editFormData[colsIndex[column.name]]"
-            :disabled="column.autoIncrement || column.primaryKey"
+            v-model="editFormData[column.name]"
+            :disabled="column.autoIncrement || column.primary_key"
             :controls-position="right"
             style="width: 100%"
           />
@@ -479,18 +604,18 @@ onMounted(() => {
           <!-- 日期时间输入 -->
           <el-date-picker
             v-else-if="getFieldType(column) === 'datetime'"
-            v-model="editFormData[colsIndex[column.name]]"
+            v-model="editFormData[column.name]"
             type="datetime"
             placeholder="选择日期时间"
             style="width: 100%"
             format="YYYY-MM-DD HH:mm:ss"
-            value-format="YYYY-MM-DD HH:mm:ss"
+            :value-format="'YYYY-MM-DDTHH:mm:ss.SSSSSSZ'"
           />
 
           <!-- 文本域输入 -->
           <el-input
             v-else-if="getFieldType(column) === 'textarea'"
-            v-model="editFormData[colsIndex[column.name]]"
+            v-model="editFormData[column.name]"
             type="textarea"
             :rows="4"
             placeholder="请输入内容"
@@ -499,7 +624,7 @@ onMounted(() => {
           <!-- 普通文本输入 -->
           <el-input
             v-else
-            v-model="editFormData[colsIndex[column.name]]"
+            v-model="editFormData[column.name]"
             :disabled="column.type==6||column.type==8||column.type==0"
             placeholder="请输入内容"
           />
@@ -566,14 +691,15 @@ onMounted(() => {
         <el-table-column label="字段类型">
           <template #default="{ row }">
             <el-select v-model="row.type" placeholder="请选择类型">
-              <el-option label="文本" :value="1" />
+            <el-option label="二进制" :value="0" />
+              <el-option label="字符串" :value="1" />
               <el-option label="整数" :value="2" />
               <el-option label="浮点数" :value="3" />
               <el-option label="日期时间" :value="4" />
               <el-option label="布尔值" :value="5" />
-              <el-option label="二进制" :value="6" />
-              <el-option label="JSON" :value="7" />
-              <el-option label="数组" :value="8" />
+              <el-option label="ROWID" :value="6" />
+              <el-option label="位图" :value="7" />              
+              <el-option label="图片" :value="8" />
             </el-select>
           </template>
         </el-table-column>
@@ -588,7 +714,7 @@ onMounted(() => {
           <template #default="{ row }">
             <div class="checkbox-group">
               <el-checkbox v-model="row.required">必填</el-checkbox>
-              <el-checkbox v-model="row.primaryKey">主键</el-checkbox>
+              <el-checkbox v-model="row.primary_key">主键</el-checkbox>
               <!--el-checkbox v-model="row.autoIncrement">自增</el-checkbox-->
             </div>
           </template>
@@ -611,6 +737,74 @@ onMounted(() => {
         <div class="dialog-footer">
           <el-button @click="alterSchemaDialogVisible = false">取消</el-button>
           <el-button type="primary" @click="saveSchemaChanges">确定</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 新建表对话框 -->
+    <el-dialog
+      v-model="createTableDialogVisible"
+      title="新建表"
+      width="800px"
+    >
+      <el-form :model="createTableForm"  class="create-table-form">
+        <el-form-item label="表名" required>
+          <el-input v-model="createTableForm.name" placeholder="请输入表名" />
+        </el-form-item>
+      </el-form>
+
+      <div class="schema-actions">
+        <el-button type="primary" :icon="Icons.Plus" @click="addCreateTableField">添加字段</el-button>
+      </div>
+
+      <el-table :data="createTableForm.schema" border style="width: 100%; margin-top: 15px; table-layout: auto;" class="schema-table">
+        <el-table-column label="字段名">
+          <template #default="{ row }">
+            <el-input v-model="row.name" placeholder="请输入字段名" />
+          </template>
+        </el-table-column>
+
+        <el-table-column label="字段类型">
+          <template #default="{ row }">
+            <el-select v-model="row.type" placeholder="请选择类型">
+              <el-option label="字符串" :value="1" />
+              <el-option label="整数" :value="2" />
+              <el-option label="浮点数" :value="3" />
+              <el-option label="日期时间" :value="4" />
+              <el-option label="布尔值" :value="5" />
+              <el-option label="ROWID" :value="6" />
+              <el-option label="位图" :value="7" />              
+              <el-option label="图片" :value="8" />
+            </el-select>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="备注">
+          <template #default="{ row }">
+            <el-input v-model="row.comment" placeholder="请输入备注" />
+          </template>
+        </el-table-column>
+
+        <el-table-column label="属性">
+          <template #default="{ row }">
+            <div class="checkbox-group">
+              <el-checkbox v-model="row.required">必填</el-checkbox>
+              <el-checkbox v-model="row.primary_key">主键</el-checkbox>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作">
+          <template #default="{ $index }">
+            <el-button type="danger" size="small" :icon="Icons.Delete" @click="removeCreateTableField($index)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="createTableDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleCreateTable">确定</el-button>
         </div>
       </template>
     </el-dialog>
@@ -652,6 +846,8 @@ onMounted(() => {
 
 .schema-actions {
   margin-bottom: 15px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .alter-schema-dialog :deep(.el-button--small) {
@@ -685,5 +881,13 @@ onMounted(() => {
 
 :deep(.checkbox-group .el-checkbox__label) {
   white-space: nowrap;
+}
+
+.create-table-form {
+  text-align: left;
+}
+
+.create-table-form :deep(.el-form-item__content) {
+  text-align: left;
 }
 </style>

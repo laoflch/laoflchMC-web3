@@ -3,6 +3,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as Icons from '@element-plus/icons-vue'
+import io from 'socket.io-client'
 import {
   getTables,
   getTableSchema,
@@ -64,6 +65,248 @@ const createTableDialogVisible = ref(false)
 const createTableForm = ref({
   name: '',
   schema: []
+})
+
+// 异步任务相关
+const taskDrawerVisible = ref(false)
+const asyncTasks = ref([])
+const websocket = ref(null)
+const wsConnected = ref(false)
+
+// 任务状态类型
+const TaskStatus = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  SUCCESS: 'success',
+  FAILED: 'failed'
+}
+
+// Socket.IO连接配置
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://127.0.0.1:18081'
+const SOCKET_RECONNECT_ATTEMPTS = 5 // 最大重连次数
+const SOCKET_RECONNECT_DELAY = 5000 // 重连间隔5秒
+
+// 初始化Socket.IO连接
+const initWebSocket = () => {
+  if (websocket.value) {
+    websocket.value.disconnect()
+  }
+
+  try {
+    websocket.value = io(SOCKET_URL+"/asynmessage", {
+      reconnectionAttempts: SOCKET_RECONNECT_ATTEMPTS,
+      reconnectionDelay: SOCKET_RECONNECT_DELAY,
+      timeout: 10000,
+      reconnection: true,
+      autoConnect: true,
+      transports: ['websocket', 'polling'],
+      forceNew: true
+    })
+
+    websocket.value.on('connect', () => {
+      console.log('Socket.IO连接成功')
+      wsConnected.value = true
+      // 连接成功后立即获取任务列表
+      //sendWebSocketMessage({ type: 'get_tasks' })
+    })
+
+    websocket.value.on('message', (data) => {
+      try {
+        handleWebSocketMessage(data)
+      } catch (error) {
+        console.error('处理Socket.IO消息失败:', error)
+      }
+    })
+
+       websocket.value.on('event', (data) => {
+      try {
+        console.log(data)
+      } catch (error) {
+        console.error('处理Socket.IO消息失败:', error)
+      }
+    })
+
+    websocket.value.on('disconnect', (reason) => {
+      console.log('Socket.IO连接关闭，原因:', reason)
+      wsConnected.value = false
+    })
+
+    websocket.value.on('error', (error) => {
+      console.error('Socket.IO错误:', error)
+      wsConnected.value = false
+    })
+
+    websocket.value.on('connect_error', (error) => {
+      console.error('Socket.IO连接错误:', error)
+      wsConnected.value = false
+    })
+
+    console.log('开始连接Socket.IO...')
+    websocket.value.connect()
+    
+  } catch (error) {
+    console.error('创建Socket.IO连接失败:', error)
+  }
+}
+
+// 处理WebSocket消息
+const handleWebSocketMessage = (data) => {
+  switch (data.type) {
+    case 'tasks_list':
+      asyncTasks.value = data.tasks || []
+      break
+    case 'task_update':
+      updateTask(data.task)
+      break
+    case 'task_added':
+      addTask(data.task)
+      break
+    case 'task_deleted':
+      removeTask(data.task_id)
+      break
+    case 'tasks_cleared':
+      asyncTasks.value = []
+      break
+    default:
+      console.warn('未知的WebSocket消息类型:', data.type)
+  }
+}
+
+// 更新任务
+const updateTask = (task) => {
+  const index = asyncTasks.value.findIndex(t => t.id === task.id)
+  if (index !== -1) {
+    asyncTasks.value[index] = task
+  }
+}
+
+// 添加任务
+const addTask = (task) => {
+  const exists = asyncTasks.value.some(t => t.id === task.id)
+  if (!exists) {
+    asyncTasks.value.unshift(task)
+  }
+}
+
+// 移除任务
+const removeTask = (taskId) => {
+  asyncTasks.value = asyncTasks.value.filter(t => t.id !== taskId)
+}
+
+// 发送Socket.IO消息
+const sendWebSocketMessage = (message) => {
+  if (websocket.value && wsConnected.value) {
+    try {
+      websocket.value.emit('message', message)
+    } catch (error) {
+      console.error('发送Socket.IO消息失败:', error)
+    }
+  } else {
+    console.warn('Socket.IO未连接，无法发送消息')
+  }
+}
+
+// 关闭Socket.IO连接
+const closeWebSocket = () => {
+  if (websocket.value) {
+    websocket.value.disconnect()
+    websocket.value = null
+  }
+  wsConnected.value = false
+}
+
+// 打开任务管理面板
+const openTaskDrawer = () => {
+  taskDrawerVisible.value = true
+  initWebSocket()
+}
+
+// 关闭任务管理面板
+const closeTaskDrawer = () => {
+  taskDrawerVisible.value = false
+  closeWebSocket()
+}
+
+// 加载任务列表
+const loadTasks = () => {
+  sendWebSocketMessage({ type: 'get_tasks' })
+}
+
+// 获取任务状态文本
+const getTaskStatusText = (status) => {
+  const statusMap = {
+    [TaskStatus.PENDING]: '等待中',
+    [TaskStatus.RUNNING]: '进行中',
+    [TaskStatus.SUCCESS]: '已完成',
+    [TaskStatus.FAILED]: '失败'
+  }
+  return statusMap[status] || status
+}
+
+// 获取任务状态类型
+const getTaskStatusType = (status) => {
+  const typeMap = {
+    [TaskStatus.PENDING]: 'info',
+    [TaskStatus.RUNNING]: 'warning',
+    [TaskStatus.SUCCESS]: 'success',
+    [TaskStatus.FAILED]: 'danger'
+  }
+  return typeMap[status] || 'info'
+}
+
+// 获取任务类型图标
+const getTaskTypeIcon = (type) => {
+  const iconMap = {
+    export: 'Download',
+    import: 'Upload',
+    delete: 'Delete',
+    update: 'Edit'
+  }
+  return Icons[iconMap[type]] || Icons.List
+}
+
+// 删除任务
+const deleteTask = async (taskId) => {
+  try {
+    await ElMessageBox.confirm('确定要删除这条任务记录吗?', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    
+    // 通过WebSocket发送删除请求
+    sendWebSocketMessage({ type: 'delete_task', task_id: taskId })
+    ElMessage.success('删除成功')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败: ' + error.message)
+    }
+  }
+}
+
+// 清空所有任务
+const clearAllTasks = async () => {
+  try {
+    await ElMessageBox.confirm('确定要清空所有任务记录吗?', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    
+    // 通过WebSocket发送清空请求
+    sendWebSocketMessage({ type: 'clear_tasks' })
+    ElMessage.success('清空成功')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('清空失败: ' + error.message)
+    }
+  }
+}
+
+// 组件卸载时关闭WebSocket连接
+import { onUnmounted } from 'vue'
+onUnmounted(() => {
+  closeWebSocket()
 })
 
 // 列索引到字段的映射
@@ -527,6 +770,7 @@ onMounted(() => {
           </template>
         </el-dropdown>
         <el-button :icon="Icons.Upload" @click="openImportDialog">导入</el-button>
+        <el-button :icon="Icons.List" @click="openTaskDrawer">异步任务</el-button>
       </div>
 
       <!-- 数据表格 -->
@@ -808,6 +1052,114 @@ onMounted(() => {
         </div>
       </template>
     </el-dialog>
+
+    <!-- 异步任务管理抽屉 -->
+    <el-drawer
+      v-model="taskDrawerVisible"
+      title="异步任务管理"
+      direction="rtl"
+      size="40%"
+      @close="closeTaskDrawer"
+    >
+      <div class="task-drawer-content">
+        <!-- WebSocket连接状态 -->
+        <div class="ws-status">
+          <el-tag :type="wsConnected ? 'success' : 'danger'" size="small">
+            <el-icon class="status-icon"><component :is="wsConnected ? Icons.CircleCheck : Icons.CircleClose" /></el-icon>
+            {{ wsConnected ? '已连接' : '未连接' }}
+          </el-tag>
+        </div>
+
+        <!-- 任务统计 -->
+        <div class="task-stats">
+          <el-card>
+            <el-row :gutter="20">
+              <el-col :span="6">
+                <div class="stat-item">
+                  <div class="stat-value">{{ asyncTasks.length }}</div>
+                  <div class="stat-label">总任务数</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="stat-item">
+                  <div class="stat-value">{{ asyncTasks.filter(t => t.status === TaskStatus.RUNNING).length }}</div>
+                  <div class="stat-label">进行中</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="stat-item">
+                  <div class="stat-value">{{ asyncTasks.filter(t => t.status === TaskStatus.SUCCESS).length }}</div>
+                  <div class="stat-label">已完成</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="stat-item">
+                  <div class="stat-value">{{ asyncTasks.filter(t => t.status === TaskStatus.FAILED).length }}</div>
+                  <div class="stat-label">失败</div>
+                </div>
+              </el-col>
+            </el-row>
+          </el-card>
+        </div>
+
+        <!-- 任务操作 -->
+        <div class="task-actions">
+          <el-button type="primary" :icon="Icons.Refresh" @click="loadTasks" :disabled="!wsConnected">刷新</el-button>
+          <el-button type="danger" :icon="Icons.Delete" @click="clearAllTasks" :disabled="asyncTasks.length === 0 || !wsConnected">清空所有</el-button>
+          <el-button :icon="Icons.RefreshRight" @click="initWebSocket" v-if="!wsConnected">重新连接</el-button>
+        </div>
+
+        <!-- 任务列表 -->
+        <div class="task-list">
+          <el-empty v-if="asyncTasks.length === 0" description="暂无任务" />
+          <el-card
+            v-for="task in asyncTasks"
+            :key="task.id"
+            class="task-card"
+            shadow="hover"
+          >
+            <div class="task-header">
+              <div class="task-info">
+                <el-icon class="task-icon"><component :is="getTaskTypeIcon(task.type)" /></el-icon>
+                <span class="task-name">{{ task.name }}</span>
+                <el-tag :type="getTaskStatusType(task.status)" size="small">{{ getTaskStatusText(task.status) }}</el-tag>
+              </div>
+              <el-button
+                type="danger"
+                size="small"
+                :icon="Icons.Delete"
+                link
+                @click="deleteTask(task.id)"
+              >
+                删除
+              </el-button>
+            </div>
+            
+            <div class="task-progress">
+              <el-progress
+                :percentage="task.progress"
+                :status="task.status === TaskStatus.FAILED ? 'exception' : task.status === TaskStatus.SUCCESS ? 'success' : ''"
+              />
+            </div>
+            
+            <div class="task-detail">
+              <div class="detail-item">
+                <span class="detail-label">创建时间:</span>
+                <span class="detail-value">{{ task.createTime }}</span>
+              </div>
+              <div class="detail-item" v-if="task.finishTime">
+                <span class="detail-label">完成时间:</span>
+                <span class="detail-value">{{ task.finishTime }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">状态信息:</span>
+                <span class="detail-value">{{ task.message }}</span>
+              </div>
+            </div>
+          </el-card>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -889,5 +1241,114 @@ onMounted(() => {
 
 .create-table-form :deep(.el-form-item__content) {
   text-align: left;
+}
+
+/* 任务管理面板样式 */
+.task-drawer-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 20px;
+}
+
+.ws-status {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.status-icon {
+  margin-right: 4px;
+}
+
+.task-stats {
+  margin-bottom: 10px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #409eff;
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #909399;
+}
+
+.task-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.task-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-card {
+  transition: all 0.3s;
+}
+
+.task-card:hover {
+  transform: translateY(-2px);
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.task-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-icon {
+  font-size: 18px;
+  color: #409eff;
+}
+
+.task-name {
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.task-progress {
+  margin-bottom: 12px;
+}
+
+.task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.detail-item {
+  display: flex;
+  gap: 8px;
+}
+
+.detail-label {
+  color: #909399;
+  min-width: 70px;
+}
+
+.detail-value {
+  color: #606266;
+  flex: 1;
 }
 </style>

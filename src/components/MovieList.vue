@@ -18,7 +18,7 @@ const hasMore = ref(true)
 // 根据屏幕尺寸计算每页显示数量
 const updatePageSize = () => {
   const width = window.innerWidth
-  console.log('窗口宽度:', width)
+  //console.log('窗口宽度:', width)
   if (width < 768) {
     pageSize.value = 6
   } else if (width < 992) {

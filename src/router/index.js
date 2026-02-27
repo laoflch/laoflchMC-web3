@@ -21,6 +21,12 @@ const routes = [
     meta: { title: '电影仓库' }
   },
   {
+    path: '/movie/:id',
+    name: 'MovieDetail',
+    component: () => import('../views/MovieDetail.vue'),
+    meta: { title: '电影详情' }
+  },
+  {
     path: '/data-management',
     name: 'DataManagement',
     component: () => import('../views/DataManagement.vue'),

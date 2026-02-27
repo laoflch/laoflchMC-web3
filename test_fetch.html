@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>豆瓣电影搜索</title>
+</head>
+<body>
+  <script type="module">
+    // 豆瓣电影搜索的 fetch 实现
+    async function searchDoubanMovie() {
+      try {
+        // 定义请求 URL 和参数
+        const searchText = encodeURIComponent('碟中碟8');
+        const url = `https://search.douban.com/movie/subject_search?search_text=${searchText}&cat=1002`;
+
+        // 配置请求选项
+        const options = {
+          method: 'GET',
+          headers: {
+            'authority': 'search.douban.com',
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'accept-language': 'zh-CN,zh;q=0.9',
+            'cookie': 'll="118318"; bid=zUMwthZr1Rw; _vwo_uuid_v2=D7433D6C54289999058029E4A40B59AF3|cb134af1003fcaf6f6af6aab1548efee; dbcl2="155964837:AW5TrHhJ7kU"; push_noty_num=0; push_doumail_num=0; __yadk_uid=wx51wyvSBlc8Fr1p6cpFrKV7yF9c9eH8; __utmv=30149280.15596; ck=6qaC; ap_v=0,6.0; frodotk_db="ff90c3544290f1d7feb249fcc7b2d585"; __utma=30149280.1697723758.1769590636.1771333172.1772012049.17; __utmc=30149280; __utmz=30149280.1772012049.17.12.utmcsr=cn.bing.com|utmccn=(referral)|utmcmd=referral|utmcct=/; __utmt=1; __utmb=30149280.4.10.1772012049',
+            'referer': 'https://movie.douban.com/subject/30433456/',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Linux"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'same-site',
+            'sec-fetch-user': '?1',
+            'upgrade-insecure-requests': '1',
+            'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          },
+          compress: true,
+          credentials: 'include'
+        };
+
+        // 发送 fetch 请求
+        const response = await fetch(url, options);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.text();
+        console.log('请求成功，响应内容：', data);
+        document.getElementById("recv").innerHTML = data
+        return data;
+
+      } catch (error) {
+        console.error('请求失败：', error);
+        throw error;
+      }
+    }
+
+    // 模块模式下，顶层可直接使用 await
+    await searchDoubanMovie();
+  </script>
+</body>
+</html>
+  

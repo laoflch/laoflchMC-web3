@@ -62,12 +62,15 @@ export async function uploadImage(file, type = 'movie_posters') {
   return http.post(`/api/image/upload/`, formData)
 }
 
-export async function loadImdbImage(url) {
+export async function loadImdbImage(url,imdb_id,douban_id){
  const data = {
       imdb_image_name: url,
       name_space: "movie_image",
       image_comment:"",
-      image_text:""
+      image_text:"",
+      imdb_id:imdb_id,
+      douban_id:douban_id
+
  }
   return http.post(`/api/image/upload/from-imdb`, data)
 }

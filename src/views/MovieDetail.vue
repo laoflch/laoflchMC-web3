@@ -5,6 +5,7 @@ import Layout from '@/components/layouts/Layout.vue'
 import * as Icons from '@element-plus/icons-vue'
 import { ElMessage, ElImageViewer } from 'element-plus'
 import { post } from '@/services/http'
+import { get } from '../services/http'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const imgBaseUrl = import.meta.env.VITE_IMG_BASE_URL || ''
@@ -29,6 +30,7 @@ const uploadingImages = ref(false)
 const uploadProgress = ref(0)
 const showUploadDrawer = ref(false)
 const uploadTasks = ref([])
+const syncingToRepo = ref(false)
 
 
 // 获取图片URL
@@ -96,6 +98,108 @@ const fetchMovieDetail = async () => {
     ElMessage.error(error.value)
   } finally {
     loading.value = false
+  }
+}
+
+// 同步电影仓库
+const syncToMovieRepo = async () => {
+  if (!movieDetail.value) {
+    ElMessage.error('没有电影信息可同步')
+    return
+  }
+
+  const doubanId = route.params.id
+  if (!doubanId) {
+    ElMessage.error('缺少电影ID')
+    return
+  }
+
+  syncingToRepo.value = true
+
+  try {
+    // 获取电影数据
+    const data = movieDetail.value
+
+    //console.log('准备同步电影仓库，电影数据:', data)
+
+
+
+    // 解析LdJsonData获取电影基本信息
+    const ldData = parseLdJsonData()
+    if (!ldData) {
+      throw new Error('无法解析电影信息')
+    }
+
+    // 获取IMDb ID
+    const imdbId = data.MovieDetail?.IMDb
+
+    // 获取本地电影图片数据
+    let localImages = []
+    if (imdbId) {
+      try {
+        const imagesResponse = await get('/api/video/movie-rep/list-local-movie-images/'+imdbId)
+        if (imagesResponse && imagesResponse.status === 1 && imagesResponse.data.data &&imagesResponse.data.cols_index) {
+          // 抽取每行的default字段组成数组
+          localImages = imagesResponse.data.data.map(item => item[imagesResponse.data.cols_index["default"]] || []).flat()
+        }
+      } catch (err) {
+        console.error('获取本地电影图片失败:', err)
+      }
+    }
+
+    // 构建电影数据，参考AddMovieDialog中的表单结构
+    const movieData = {
+      douban_id: doubanId,
+      imdb_id: imdbId || '',
+      name_ch: ldData.name ? ldData.name.split(' ')[0] : '',
+      name_en: ldData.name ? ldData.name.split(' ').slice(1).join(' ') : '',
+      alias: data.MovieDetail?.Alias || '',
+      year: parseInt(data.MovieDetail?.Year) || (ldData.datePublished ? parseInt(ldData.datePublished.substring(0, 4)) : 1900),
+      director: data.MovieDetail?.Director?.join(' / ') || '',
+      screenwriter: data.MovieDetail?.Screenwriter?.join(' / ') || '',
+      actors: data.MovieDetail?.Actor?.join(' / ') || '',
+      genre: data.MovieDetail?.Genre?.join(' / ') || '',
+      country: data.MovieDetail?.Country || '',
+      language: data.MovieDetail?.Language || '',
+      duration: parseInt(data.MovieDetail?.Runtime) || 0,
+      rating: parseFloat(ldData.aggregateRating?.ratingValue) || 0,
+      rating_count:  parseInt(ldData.aggregateRating?.ratingCount) || 0,
+      brief_introduction: data.Summary || '',
+      release_date: data.MovieDetail?.ReleaseDate?.join(' / ') || '',
+      first_air_date: data.MovieDetail?.FirstAirDate?.join(' / ') || '',
+      episode_count: parseInt(data.MovieDetail?.EpisodeCount) || 0,
+      episode_length: parseInt(data.MovieDetail?.EpisodeLength) || 0,
+      douban_poster_url: data.PosterURL || '',
+      douban_ld_json_data: data.LdJsonData || '',//JSON.stringify(ldData) || '',
+      douban_movie_detail: JSON.stringify(data.MovieDetail) || '',
+      celebrities: JSON.stringify(data.Celebrities) || '',
+      //image: '', // 海报图片ID，需要后续上传
+      images: JSON.stringify(localImages) // 剧照图片ID数组，从接口获取的default字段数据
+    }
+
+    // 根据是否有imdb_id选择不同的接口
+    if (false) {
+      // 使用updateMovie接口同步到电影仓库，以imdb_id作为主键
+      await post('/api/storage/update/row', { 
+        table: 'movie_info', 
+        row_key: imdbId,
+        data: movieData 
+      })
+    } else {
+      console.log('没有IMDb ID',imdbId)
+      // 使用createMovie接口新增电影
+      await post('/api/storage/insert', { 
+        table: 'movie_info', 
+        data: movieData 
+      })
+    }
+
+    ElMessage.success('同步电影仓库成功')
+  } catch (err) {
+    console.error('同步电影仓库出错:', err)
+    ElMessage.error(err.message || '同步电影仓库失败，请稍后重试')
+  } finally {
+    syncingToRepo.value = false
   }
 }
 
@@ -295,7 +399,8 @@ const getStatusType = (status) => {
     pending: 'info',
     uploading: 'warning',
     success: 'success',
-    failed: 'danger'
+    failed: 'danger',
+    cancelled: 'info'
   }
   return types[status] || 'info'
 }
@@ -306,7 +411,8 @@ const getStatusText = (status) => {
     pending: '等待中',
     uploading: '上传中',
     success: '成功',
-    failed: '失败'
+    failed: '失败',
+    cancelled: '已取消'
   }
   return texts[status] || '未知'
 }
@@ -315,6 +421,28 @@ const getStatusText = (status) => {
 const clearUploadTasks = () => {
   uploadTasks.value = []
   ElMessage.success('任务列表已清空')
+}
+
+// 取消单个任务
+const cancelUploadTask = (task) => {
+  const taskIndex = uploadTasks.value.findIndex(t => t.id === task.id)
+  if (taskIndex === -1　|| uploadTasks.value[taskIndex].cancelled) {
+     return // 跳过已取消的任务
+  }
+  // 如果任务正在上传中，标记为取消
+  if (uploadTasks.value[taskIndex].status === 'uploading') {
+    uploadTasks.value[taskIndex] = {
+      ...uploadTasks.value[taskIndex],
+      status: 'cancelled',
+      cancelled: true,
+      endTime: new Date()
+    }
+    ElMessage.success('任务已取消')
+  } else if (uploadTasks.value[taskIndex].status === 'pending') {
+    // 如果任务还在等待中，直接从列表中移除
+    uploadTasks.value.splice(taskIndex, 1)
+    ElMessage.success('任务已取消')
+  }
 }
 
 // 重传失败的任务
@@ -336,6 +464,7 @@ const retryUpload = async (task) => {
     // 获取图片二进制数据，添加超时和错误处理
     let response
     try {
+     
       response = await fetch(task.imageUrl, {
         mode: 'cors',
         cache: 'no-cache',
@@ -452,8 +581,16 @@ const url = task.imageUrl
  try {
 
         
-        // 获取图片二进制数据
-        const response = await fetch(url)
+        // 设置超时，30秒后自动取消
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('请求超时')), 60000)
+        })
+
+        // 获取图片二进制数据，添加超时控制
+        const response = await Promise.race([
+          fetch(url),
+          timeoutPromise
+        ])
         const blob = await response.blob()
         
         // 创建FormData对象
@@ -470,8 +607,16 @@ const url = task.imageUrl
 
         //console.log('上传图片，url:', url, 'formData:', movieDetail)
         
-        // 上传图片
-        const result = await post('/api/image/upload', formData)
+        // 设置上传超时，60秒后自动取消
+        const uploadTimeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('上传超时')), 60000)
+        })
+
+        // 上传图片，添加超时控制
+        const result = await Promise.race([
+          post('/api/image/upload', formData),
+          uploadTimeoutPromise
+        ])
         
         // 更新任务状态为成功
         const taskIndex = uploadTasks.value.findIndex(t => t.id === task.id)
@@ -678,6 +823,15 @@ const url = task.imageUrl
                   >
                     {{ imdbData ? '刷新IMDb剧照' : '获取IMDb剧照' }}
                   </el-button>
+                  <el-button
+                    type="success"
+                    size="small"
+                    :loading="syncingToRepo"
+                    @click="syncToMovieRepo"
+                    class="sync-repo-btn"
+                  >
+                    同步电影仓库
+                  </el-button>
                 </div>
               </div>
             </div>
@@ -867,13 +1021,14 @@ const url = task.imageUrl
             <div class="task-actions">
               <el-tag :type="getStatusType(task.status)">{{ getStatusText(task.status) }}</el-tag>
               <el-button v-if="task.status === 'failed'" type="primary" size="small" @click="retryUpload(task)">重传</el-button>
+              <el-button v-if="task.status === 'pending' || task.status === 'uploading'" type="warning" size="small" @click="cancelUploadTask(task)">取消</el-button>
               <span v-if="task.rowId" class="task-row-id">
               row_id: {{ task.rowId }}
               </span>
               <div v-if="task.error" class="task-row-id">
               {{task.error}}
             </div>
-              <span class="task-time">{{ formatTime(task.startTime) }}</span>
+              <span v-if="task.status === 'success' || task.status === 'uploading' || task.status === 'failed'" class="task-time">{{ formatTime(task.startTime) }}</span>
             </div>
           </div>
           </div>
@@ -1327,6 +1482,10 @@ const url = task.imageUrl
   color: #67C23A;
   font-size: 16px;
   margin-bottom: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-all;
 }
 
 .task-row-id {

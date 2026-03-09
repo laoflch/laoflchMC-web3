@@ -231,7 +231,7 @@ const addScreenshotByUrl = async () => {
     // 调用后端接口从URL抓取图片
 
 
-    const res = await loadImdbImage(screenshotUrl.value)
+    const res = await loadImdbImage(screenshotUrl.value, editForm.value.imdb_id, editForm.value.douban_id)
     const id = res.data
     
     

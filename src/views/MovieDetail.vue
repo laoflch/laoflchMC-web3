@@ -1,16 +1,35 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Layout from '@/components/layouts/Layout.vue'
 import * as Icons from '@element-plus/icons-vue'
 import { ElMessage, ElImageViewer } from 'element-plus'
 import { post } from '@/services/http'
 import { get } from '../services/http'
+import io from 'socket.io-client'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const imgBaseUrl = import.meta.env.VITE_IMG_BASE_URL || ''
 const route = useRoute()
 const router = useRouter()
+
+// WebSocket相关
+const websocket = ref(null)
+const wsConnected = ref(false)
+const asyncTasks = ref([])
+
+// Socket.IO连接配置
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://127.0.0.1:18081'
+const SOCKET_RECONNECT_ATTEMPTS = 10 // 最大重连次数
+const SOCKET_RECONNECT_DELAY = 3000 // 重连间隔3秒
+
+// 任务状态类型
+const TaskStatus = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  SUCCESS: 'success',
+  FAILED: 'failed'
+}
 
 const movieDetail = ref(null)
 const loading = ref(false)
@@ -31,6 +50,31 @@ const uploadProgress = ref(0)
 const showUploadDrawer = ref(false)
 const uploadTasks = ref([])
 const syncingToRepo = ref(false)
+
+// 批次任务展开状态
+const expandedTasks = ref([])
+
+// 切换批次任务的展开/收起状态
+const toggleSubTasks = (taskId) => {
+  const index = expandedTasks.value.indexOf(taskId)
+  if (index === -1) {
+    expandedTasks.value.push(taskId)
+  } else {
+    expandedTasks.value.splice(index, 1)
+  }
+}
+
+// 根据子任务ID获取子任务对象
+const getSubTaskById = (subTaskId) => {
+  return asyncTasks.value.find(task => task.id === subTaskId)
+}
+
+// 清空异步任务列表
+const clearAsyncTasks = () => {
+  asyncTasks.value = []
+  expandedTasks.value = []
+  ElMessage.success('任务列表已清空')
+}
 
 
 // 获取图片URL
@@ -208,9 +252,239 @@ const goBack = () => {
   router.back()
 }
 
+// 初始化Socket.IO连接
+const initWebSocket = () => {
+  // 如果连接已存在且已连接，则不重新创建连接
+  if (websocket.value && wsConnected.value) {
+    console.log('WebSocket连接已存在，跳过重新连接')
+    return
+  }
+  
+  // 如果连接存在但未连接，则先断开
+  if (websocket.value) {
+    websocket.value.disconnect()
+  }
+
+  try {
+    websocket.value = io(SOCKET_URL+"/asynmessage", {
+      reconnectionAttempts: SOCKET_RECONNECT_ATTEMPTS,
+      reconnectionDelay: SOCKET_RECONNECT_DELAY,
+      timeout: 10000,
+      reconnection: true,
+      autoConnect: true,
+      transports: ['websocket', 'polling']
+    })
+
+    websocket.value.on('connect', () => {
+      console.log('Socket.IO连接成功')
+      wsConnected.value = true
+    })
+
+    websocket.value.on('message', (data) => {
+      try {
+
+        console.log("websocket receive message:",data)
+        handleWebSocketMessage(data)
+      } catch (error) {
+        console.error('处理Socket.IO消息失败:', error)
+      }
+    })
+
+    websocket.value.on('event', (data) => {
+      try {
+        console.log(data)
+      } catch (error) {
+        console.error('处理Socket.IO消息失败:', error)
+      }
+    })
+
+    websocket.value.on('dataStream', (data) => {
+      try {
+        console.log('收到dataStream消息:', data)
+
+        // 先将data解析为object
+        let parsedData
+        if (typeof data === 'string') {
+          parsedData = JSON.parse(data)
+        } else {
+          parsedData = data
+        }
+
+        console.log('解析后的dataStream消息:', parsedData)
+
+        // 如果数据包含task_id，更新对应的任务状态
+        if (parsedData.task_id && parsedData.msg_content) {
+          const msgContent = parsedData.msg_content
+
+          // 查找对应的批次任务
+          const batchTaskIndex = asyncTasks.value.findIndex(t => t.id === parsedData.task_id)
+
+          if (batchTaskIndex !== -1) {
+            //const batchTask = asyncTasks.value[batchTaskIndex]
+
+            if (asyncTasks.value[batchTaskIndex].type === 'batch_image_upload') {
+              // 更新批次任务的整体状态
+              const updatedBatchTask = asyncTasks.value[batchTaskIndex]
+              if (msgContent.status) updatedBatchTask.status = msgContent.status
+              if (msgContent.total !== undefined) updatedBatchTask.total_images = msgContent.total
+              if (msgContent.finished !== undefined) updatedBatchTask.processed_images = msgContent.finished
+              if (msgContent.finished_rate !== undefined) updatedBatchTask.progress = Math.round(msgContent.finished_rate * 100)
+
+              // 如果有url，查找并更新对应的子任务
+              if (msgContent.url) {
+                // 在updatedBatchTask.sub_tasks中查找子任务
+                const subTaskIndex = updatedBatchTask.sub_tasks.findIndex(st => st.image_name === msgContent.url)
+                if (subTaskIndex !== -1) {
+                  const updatedSubTask = updatedBatchTask.sub_tasks[subTaskIndex] 
+
+                  // 更新子任务状态
+                  if (msgContent.status) updatedSubTask.status = msgContent.status
+                  // 如果子任务的状态是finished，则更新进度为100%
+                  if (msgContent.status === 'finished') {
+                    updatedSubTask.progress = 100
+                  } else if (msgContent.finished_rate !== undefined) {
+                    updatedSubTask.progress = 0
+                  }
+                  if (msgContent.image_row_id) updatedSubTask.row_id = msgContent.image_row_id
+                  if (parsedData.time_stamp) updatedSubTask.updated_at = parsedData.time_stamp
+
+                  // 更新updatedBatchTask.sub_tasks中的子任务
+                  //updatedBatchTask.sub_tasks[subTaskIndex] = updatedSubTask
+
+                 
+                }
+              }
+
+              // 更新批次任务，触发响应式更新
+              asyncTasks.value[batchTaskIndex] = updatedBatchTask
+            }
+          }
+        }
+        console.log('更新后的任务列表:', asyncTasks.value)
+      } catch (error) {
+        console.error('处理dataStream消息失败:', error)
+      }
+    })
+
+    websocket.value.on('disconnect', (reason) => {
+      console.log('Socket.IO连接关闭，原因:', reason)
+      wsConnected.value = false
+      
+      // 如果是服务器端主动关闭连接，则不尝试重连
+      if (reason === 'io server disconnect') {
+        console.log('服务器端主动关闭连接，不尝试重连')
+        websocket.value.disconnect()
+      } else if (reason === 'transport close') {
+        console.log('传输层连接关闭，可能是网络问题或服务器重启')
+      }
+    })
+
+    websocket.value.on('error', (error) => {
+      console.error('Socket.IO错误:', error)
+      wsConnected.value = false
+    })
+
+    websocket.value.on('connect_error', (error) => {
+      console.error('Socket.IO连接错误:', error)
+      wsConnected.value = false
+    })
+
+    websocket.value.on('reconnect', (attemptNumber) => {
+      console.log(`Socket.IO重连成功，尝试次数: ${attemptNumber}`)
+      wsConnected.value = true
+    })
+
+    websocket.value.on('reconnect_attempt', (attemptNumber) => {
+      console.log(`Socket.IO尝试重连，第 ${attemptNumber} 次`)
+    })
+
+    websocket.value.on('reconnect_failed', () => {
+      console.error('Socket.IO重连失败，已达到最大重连次数')
+      wsConnected.value = false
+    })
+
+    console.log('开始连接Socket.IO...')
+    // 不需要显式调用connect()，因为autoConnect: true已经会自动建立连接
+
+  } catch (error) {
+    console.error('创建Socket.IO连接失败:', error)
+  }
+}
+
+// 处理WebSocket消息
+const handleWebSocketMessage = (data) => {
+  switch (data.type) {
+    case 'tasks_list':
+      asyncTasks.value = data.tasks || []
+      break
+    case 'task_update':
+      updateTask(data.task)
+      break
+    case 'task_added':
+      addTask(data.task)
+      break
+    case 'task_deleted':
+      removeTask(data.task_id)
+      break
+    case 'tasks_cleared':
+      asyncTasks.value = []
+      break
+    default:
+      console.warn('未知的WebSocket消息类型:', data.type)
+  }
+}
+
+// 更新任务
+const updateTask = (task) => {
+  const index = asyncTasks.value.findIndex(t => t.id === task.id)
+  if (index !== -1) {
+    asyncTasks.value[index] = task
+  }
+}
+
+// 添加任务
+const addTask = (task) => {
+  const exists = asyncTasks.value.some(t => t.id === task.id)
+  if (!exists) {
+    asyncTasks.value.unshift(task)
+  }
+}
+
+// 移除任务
+const removeTask = (taskId) => {
+  asyncTasks.value = asyncTasks.value.filter(t => t.id !== taskId)
+}
+
+// 发送Socket.IO消息
+const sendWebSocketMessage = (message) => {
+  if (websocket.value && wsConnected.value) {
+    try {
+      websocket.value.emit('message', message)
+    } catch (error) {
+      console.error('发送Socket.IO消息失败:', error)
+    }
+  } else {
+    console.warn('Socket.IO未连接，无法发送消息')
+  }
+}
+
+// 关闭Socket.IO连接
+const closeWebSocket = () => {
+  if (websocket.value) {
+    websocket.value.disconnect()
+    websocket.value = null
+  }
+  wsConnected.value = false
+}
+
 // 页面加载时获取电影详情
 onMounted(() => {
   fetchMovieDetail()
+})
+
+// 组件卸载时关闭WebSocket连接
+onUnmounted(() => {
+  closeWebSocket()
 })
 
 // 解析LdJsonData
@@ -324,6 +598,8 @@ const fetchImdbContent = async (imdbId) => {
     console.error('获取IMDb内容出错:', err)
   } finally {
     loadingImdb.value = false
+    // 初始化WebSocket连接
+    //initWebSocket()
   }
 }
 
@@ -389,16 +665,27 @@ const loadMoreImdbImages = async () => {
 
 // 格式化时间
 const formatTime = (date) => {
+  if (!date) return ''
+
   const d = new Date(date)
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
+  if (isNaN(d.getTime())) return date
+
+  const year = d.getFullYear()
+  const month = (d.getMonth() + 1).toString().padStart(2, '0')
+  const day = d.getDate().toString().padStart(2, '0')
+  const hours = d.getHours().toString().padStart(2, '0')
+  const minutes = d.getMinutes().toString().padStart(2, '0')
+  const seconds = d.getSeconds().toString().padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
 // 获取状态类型
 const getStatusType = (status) => {
   const types = {
     pending: 'info',
-    uploading: 'warning',
-    success: 'success',
+    running: 'warning',
+    finished: 'success',
     failed: 'danger',
     cancelled: 'info'
   }
@@ -409,8 +696,8 @@ const getStatusType = (status) => {
 const getStatusText = (status) => {
   const texts = {
     pending: '等待中',
-    uploading: '上传中',
-    success: '成功',
+    running: '上传中',
+    finished: '上传完成',
     failed: '失败',
     cancelled: '已取消'
   }
@@ -537,121 +824,119 @@ const uploadSelectedImages = async () => {
     return
   }
 
-  uploadProgress.value = 0
+  // 获取IMDb ID和豆瓣ID
+  const imdbId = movieDetail.value?.MovieDetail?.IMDb
+  const doubanId = route.params.id
 
-  // 为每个文件创建独立的任务项
+  if (!imdbId) {
+    ElMessage.error('缺少IMDb ID')
+    return
+  }
+
+  uploadProgress.value = 0
 
   try {
     const selectedUrls = Array.from(selectedImdbImages.value)
-    const tasks = []
-
-    for (let i = 0; i < selectedUrls.length; i++) {
-      const url = selectedUrls[i]
-      
-      // 为每个文件创建独立的任务项
-      const task = {
-        id: Date.now() + i,
-        status: 'pending',
-        progress: 0,
-        imageUrl: url,
-        startTime: null,
-        endTime: null
+    
+    // 构造图片数据数组
+    const imagesData = selectedUrls.map(url => {
+      const image = imdbImages.value.find(img => img.node.url === url)
+      return {
+        imdb_id: imdbId,
+        douban_id: doubanId,
+        image_name: url,
+        image_text: image?.node?.caption?.plainText || "",
+        image_comment: image?.node?.caption?.plainText || ""
       }
-      tasks.push(task)
-      uploadTasks.value.unshift(task)
-      
+    })
+
+    // 构造请求数据
+    const requestData = {
+      imdb_id: imdbId,
+      load_type: 1,
+      images: imagesData
     }
 
-    // 立即清除所有图片的选择状态
+    // 发送异步上传任务请求
+    const response = await post('/api/video/imdb/asyn-load-images', requestData)
+
+    if (response && response.status === 1) {
+      ElMessage.success('上传任务已提交，请在上传任务中查看进度')
+      
+      // 初始化WebSocket连接以接收任务状态更新
+      initWebSocket()
+      
+      // 如果返回数据中包含task_id，则加入对应的房间
+      if (response.data && response.data.task_id) {
+        // 等待WebSocket连接建立后再加入房间
+        const joinRoom = () => {
+          if (wsConnected.value) {
+            websocket.value.emit('join-room', JSON.stringify({ RoomId: response.data.task_id }))
+            console.log(`已加入任务房间: ${response.data.task_id}`)
+
+            // 创建批次任务（父任务）
+            const batchTask = {
+              id: response.data.task_id,
+              status: 'pending',
+              type: 'batch_image_upload',
+              imdb_id: imdbId,
+              douban_id: doubanId,
+              total_images: imagesData.length,
+              processed_images: 0,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              sub_tasks: [] // 存储子任务ID
+            }
+
+           
+
+            // 为每个图片创建子任务
+            imagesData.forEach((imageData, index) => {
+              //const subTaskId = `${response.data.task_id}_sub_${index}`
+              const subTask = {
+                id: imageData.image_name, // 使用图片URL作为子任务ID
+                parent_id: response.data.task_id, // 关联父任务ID
+                status: 'pending',
+                type: 'image_upload',
+                imdb_id: imdbId,
+                douban_id: doubanId,
+                image_name: imageData.image_name,
+                image_text: imageData.image_text,
+                image_comment: imageData.image_comment,
+                progress: 0,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }
+
+              // 添加子任务到任务列表
+              //addTask(subTask)
+              //console.log(`已添加子任务到列表 [${index + 1}/${imagesData.length}]:`, subTask)
+
+              // 将子任务ID添加到父任务的sub_tasks数组中
+              batchTask.sub_tasks.push(subTask)
+            })
+            // 添加批次任务到任务列表
+            addTask(batchTask)
+            console.log('已添加批次任务到列表:', batchTask)
+            // 更新批次任务的sub_tasks
+            //updateTask(batchTask)
+          } else {
+            // 如果连接未建立，延迟重试
+            setTimeout(joinRoom, 500)
+          }
+        }
+        joinRoom()
+      }
+    } else {
+      ElMessage.error('提交上传任务失败')
+    }
+
+    // 清除所有图片的选择状态
     selectedImdbImages.value.clear()
 
-      for (let i = 0; i < tasks.length; i++) {
-  const task = tasks[i]
-  
-  // 更新任务状态为上传中
-  const taskIndex = uploadTasks.value.findIndex(t => t.id === task.id)
-  if (taskIndex !== -1) {
-    uploadTasks.value[taskIndex] = {
-      ...uploadTasks.value[taskIndex],
-      status: 'uploading',
-      startTime: new Date()
-    }
-  }
-const url = task.imageUrl
- try {
+   
 
-        
-        // 设置超时，30秒后自动取消
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('请求超时')), 60000)
-        })
-
-        // 获取图片二进制数据，添加超时控制
-        const response = await Promise.race([
-          fetch(url),
-          timeoutPromise
-        ])
-        const blob = await response.blob()
-        
-        // 创建FormData对象
-        const formData = new FormData()
-        formData.append('file', blob, `image_${i}.jpg`)
-        formData.append('space_name', "movie_image")
-        formData.append('image_name', url)
-        // 查找对应的图片对象
-        const image = imdbImages.value.find(img => img.node.url === url)
-        formData.append('image_text', image.node.caption.plainText || "")
-        formData.append('image_comment', JSON.stringify(image.node))
-        formData.append('douban_id', route.params.id)
-        formData.append('imdb_id', movieDetail.value.MovieDetail.IMDb)
-
-        //console.log('上传图片，url:', url, 'formData:', movieDetail)
-        
-        // 设置上传超时，60秒后自动取消
-        const uploadTimeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('上传超时')), 60000)
-        })
-
-        // 上传图片，添加超时控制
-        const result = await Promise.race([
-          post('/api/image/upload', formData),
-          uploadTimeoutPromise
-        ])
-        
-        // 更新任务状态为成功
-        const taskIndex = uploadTasks.value.findIndex(t => t.id === task.id)
-        if (taskIndex !== -1) {
-          uploadTasks.value[taskIndex] = {
-            ...uploadTasks.value[taskIndex],
-            status: 'success',
-            progress: 100,
-            rowId: result.data,
-            endTime: new Date()
-          }
-        }
-        
-        //console.log('上传成功，row_id:', result.data)
-      } catch (err) {
-        console.error('上传图片失败:', url, err)
-        
-        // 更新任务状态为失败
-        const taskIndex = uploadTasks.value.findIndex(t => t.id === task.id)
-        if (taskIndex !== -1) {
-          uploadTasks.value[taskIndex] = {
-            ...uploadTasks.value[taskIndex],
-            status: 'failed',
-            error: err.message || '上传失败',
-            endTime: new Date()
-          }
-        }
-      }
-      // 更新整体进度
-      uploadProgress.value = Math.round(((i + 1) / selectedUrls.length) * 100)
-}
     
-    
-    // 显示上传完成消息
-    ElMessage.success('所有图片上传完成')
     
    
   } catch (err) {
@@ -987,55 +1272,99 @@ const url = task.imageUrl
         <el-button
           type="danger"
           size="small"
-          @click="clearUploadTasks"
-          :disabled="uploadTasks.length === 0"
+          @click="clearAsyncTasks"
+          :disabled="asyncTasks.length === 0"
         >
           清空任务
         </el-button>
       </div>
     </template>
-  <div v-if="uploadTasks.length === 0" class="empty-tasks">
+  <div v-if="asyncTasks.length === 0" class="empty-tasks">
     暂无上传任务
   </div>
   <div v-else class="upload-tasks-list">
-    <div v-for="(task, index) in uploadTasks" :key="index" class="upload-task-item">
+    <div v-for="(task, index) in asyncTasks" :key="index" class="upload-task-item">
 
-      <div class="task-content">
-        <div class="task-image-preview">
-          <img :src="getImdbThumbnailUrl(task.imageUrl)" alt="上传图片" class="preview-image" />
+      <!-- 批次任务 -->
+      <div v-if="task.type === 'batch_image_upload'" class="batch-task">
+        <div class="batch-task-header">
+          <div class="batch-task-info">
+            <div class="batch-task-header-row">
+              <div class="batch-task-id">批次: {{ task.id }}</div>
+              <div class="batch-task-status">
+                <el-tag :type="getStatusType(task.status)">{{ getStatusText(task.status) }}</el-tag>
+                <span class="batch-task-count">{{ task.processed_images }}/{{ task.total_images }}</span>
+              </div>
+            </div>
+            <div class="batch-task-progress-row">
+              <el-progress 
+                :percentage="task.total_images > 0 ? Math.round((task.processed_images / task.total_images) * 100) : 0" 
+                :status="task.status === 'failed' ? 'exception' : (task.status === 'success' ? 'success' : '')"
+                :color="task.status !== 'failed' ? '#67C23A' : '#F56C6C'" 
+                class="batch-task-progress"
+              />
+              <el-button 
+            type="primary" 
+            size="small" 
+            style="margin-right: 10px;"
+            @click="toggleSubTasks(task.id)"
+          >
+            {{ expandedTasks.includes(task.id) ? '隐藏' : '展开' }}
+          </el-button>
+            </div>
+            
+          </div>
+         
         </div>
-        <div class="task-info">
-          <div class="task-progress">
-            <div class="task-info-left">
-            <div v-if="task.imageUrl" class="task-image-url">
-              {{ task.imageUrl }}
+
+        <!-- 子任务列表 -->
+        <div v-if="expandedTasks.includes(task.id)" class="sub-tasks-list">
+          <div 
+            v-for="(subTask, subIndex) in task.sub_tasks" 
+            :key="subIndex" 
+            class="sub-task-item"
+          >
+            <div class="sub-task-content">
+              <div class="sub-task-image-preview">
+                <img 
+                  :src="getImdbThumbnailUrl(subTask?.image_name)" 
+                  alt="上传图片" 
+                  class="preview-image" 
+                />
+              </div>
+              <div class="sub-task-info">
+                
+                    <div class="sub-task-name">
+                      {{ subTask?.image_name || '未知图片' }}
+                    </div>
+                    <div class="sub-task-text">
+                      {{ subTask?.image_text || '' }}
+                    </div>
+                  
+                  
+                <div class="sub-task-status">
+                  <el-tag :type="getStatusType(subTask?.status)">
+                    {{ getStatusText(subTask?.status) }}
+                  </el-tag>
+                  <span v-if="subTask?.error" class="sub-task-error">
+                    {{ subTask?.error }}
+                  </span>
+                  <div v-if="subTask?.status === 'finished'" class="sub-task-details">
+                    <div class="sub-task-row-id">Row_ID: {{ subTask?.row_id }}</div>
+                    <div class="sub-task-update-time">{{ formatTime(subTask?.updated_at) }}</div>
+                  </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-                     
-            
-            
-          </div>
-          <div class="task-info-right">
-            <div class="task-progress">
-              <el-progress :percentage="task.progress" :status="task.status === 'failed' ? 'exception' : (task.status === 'success' ? 'success' : 'normal')" />
-            </div>
-            <div class="task-actions">
-              <el-tag :type="getStatusType(task.status)">{{ getStatusText(task.status) }}</el-tag>
-              <el-button v-if="task.status === 'failed'" type="primary" size="small" @click="retryUpload(task)">重传</el-button>
-              <el-button v-if="task.status === 'pending' || task.status === 'uploading'" type="warning" size="small" @click="cancelUploadTask(task)">取消</el-button>
-              <span v-if="task.rowId" class="task-row-id">
-              row_id: {{ task.rowId }}
-              </span>
-              <div v-if="task.error" class="task-row-id">
-              {{task.error}}
-            </div>
-              <span v-if="task.status === 'success' || task.status === 'uploading' || task.status === 'failed'" class="task-time">{{ formatTime(task.startTime) }}</span>
-            </div>
-          </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
+
+      <!-- 单个图片任务（保留原有逻辑） -->
+      
+   
 </el-drawer>
 
         </div>
@@ -1395,7 +1724,7 @@ const url = task.imageUrl
 }
 
 .upload-tasks-list {
-  padding: 0 20px;
+  
 }
 
 .upload-task-item {
@@ -1405,12 +1734,10 @@ const url = task.imageUrl
   border-radius: 8px;
   background-color: #f0f9f4;
   box-shadow: 0 2px 8px rgba(103, 194, 58, 0.1);
-  transition: all 0.3s ease;
 }
 
 .upload-task-item:hover {
-  box-shadow: 0 4px 12px rgba(103, 194, 58, 0.2);
-  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(103, 194, 58, 0.1);
 }
 
 .task-header {
@@ -1444,7 +1771,6 @@ const url = task.imageUrl
   height: 100px;
   object-fit: cover;
   border-radius: 6px;
-  border: 2px solid #67C23A;
 }
 
 .task-info {
@@ -1547,5 +1873,198 @@ const url = task.imageUrl
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 10px;
   }
+}
+
+/* 批次任务样式 */
+.batch-task {
+  margin-top: 10px;
+  margin-left: 10px;
+  margin-right: 10px;
+  display: flex;
+  gap: 15px;
+  flex-direction: column;
+}
+
+.batch-task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.batch-task-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.batch-task-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.batch-task-id {
+  font-weight: 600;
+  color: #303133;
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+.batch-task-progress {
+  width: 100%;
+  margin-bottom: 10px;
+  margin-top: 10px;
+  flex: 1;
+  
+}
+
+.batch-task-progress-row {
+ display: flex;
+ align-items: center;
+ gap: 10px;
+ flex: 1;
+}
+
+.batch-task-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.batch-task-count {
+  color: #606266;
+  font-size: 14px;
+}
+
+/* 子任务列表样式 */
+.sub-tasks-list {
+  
+}
+
+.sub-task-item {
+  margin-bottom: 15px;
+  padding: 5px;
+  border: 2px solid #7ec759;
+  border-radius: 8px;
+  background-color: #dff3e3;
+  box-shadow: 0 2px 8px rgba(103, 194, 58, 0.15);
+  transition: all 0.3s ease;
+}
+
+.sub-task-item:hover {
+  box-shadow: 0 4px 16px rgba(103, 194, 58, 0.25);
+  transform: translateY(-2px);
+  border-color: #85ce61;
+}
+ 
+
+
+.sub-task-content {
+  
+  display: flex;
+  gap: 15px;
+}
+
+.sub-task-image-preview {
+  width: 100px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sub-task-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.sub-task-info-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.sub-task-info-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.sub-task-name {
+  font-weight: 500;
+  color: #67C23A;
+  font-size: 16px;
+  margin-bottom: 10px;
+  margin-top: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-all;
+  display: block;
+  width: 100%;
+}
+
+.sub-task-text {
+  color: #606266;
+  font-size: 14px;
+  margin-bottom: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  width: 100%;
+}
+
+.sub-task-progress {
+  width: 100%;
+  margin-bottom: 10px;
+  margin-top: 10px;
+}
+
+.sub-task-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sub-task-error {
+  color: #f56c6c;
+  font-size: 14px;
+  margin-top: 0px;
+  color: #f56c6c;
+  font-weight: 500;
+  font-size: 14px;
+  padding: 6px 10px;
+  background-color: #fef0f0;
+  border-radius: 4px;
+  word-break: break-all;
+  text-align: right;
+  margin-left: auto;
+}
+
+.sub-task-details {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  gap: 8px;
+}
+
+.sub-task-row-id {
+  color: #67C23A;
+  font-weight: 500;
+  font-size: 14px;
+  margin-right: 15px;
+}
+
+.sub-task-update-time {
+  color: #909399;
+  font-size: 12px;
+  margin-right: 15px;
 }
 </style>

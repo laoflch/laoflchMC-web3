@@ -887,11 +887,7 @@ onMounted(() => {
   // 初始化WebSocket连接
   initWebSocket()
 
-  nextTick(() => {
-loadMoreDoubanImages("right")
-    
-    
-  })
+  
   
 })
 

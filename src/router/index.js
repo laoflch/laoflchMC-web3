@@ -27,6 +27,12 @@ const routes = [
     meta: { title: '电影详情' }
   },
   {
+    path: '/person/:id',
+    name: 'PersonDetail',
+    component: () => import('../views/PersonDetail.vue'),
+    meta: { title: '人物详情' }
+  },
+  {
     path: '/data-management',
     name: 'DataManagement',
     component: () => import('../views/DataManagement.vue'),

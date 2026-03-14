@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref,computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Layout from '@/components/layouts/Layout.vue'
 import * as Icons from '@element-plus/icons-vue'
@@ -16,10 +16,12 @@ const isFocused = ref(false)
 const movieSearchResults = ref([])
 const showMovieResults = ref(false)
 const loading = ref(false)
+const imageLoadState = ref({})
+
 
 
 // 获取图片URL
-const getImageUrl = (coverUrl) => {
+const getImageUrl = (coverUrl, index, type) => {
   // 如果是默认封面图片，返回本地默认图片
   if (coverUrl === 'https://img1.doubanio.com/cuphead/movie-static/pics/movie_default_medium.png') {
     return `${imgBaseUrl}/api/image/thumbnail/movie_posters/39d129b5-d03d-353d-a20e-6a324db817a3`
@@ -31,7 +33,43 @@ const getImageUrl = (coverUrl) => {
   const fileName = pathParts.pop();
   const directoryPath = pathParts.join('/');
   const encodedPath = btoa(directoryPath).replace(/\+/g, '-').replace(/\//g, '_');
+  
+  // 检查是否需要使用webp格式
+  if (index !== undefined && type !== undefined) {
+    const key = `${type}_${index}`;
+    if (imageLoadState.value[key]?.triedWebp) {
+      // 如果已经尝试过webp格式，使用webp格式
+      const dotIndex = fileName.lastIndexOf('.');
+      if (dotIndex !== -1) {
+        const newFileName = fileName.substring(0, dotIndex) + '.webp';
+        return `${API_BASE}/api/video/douban/image/${encodedPath}/${newFileName}`;
+      }
+    }
+  }
+  
   return `${API_BASE}/api/video/douban/image/${encodedPath}/${fileName}`;
+}
+
+// 处理豆瓣图片加载失败，尝试使用webp格式
+const handleDoubanImageError = (event, index, type) => {
+  // 如果没有提供index和type，返回
+  if (index === undefined || type === undefined) {
+    return;
+  }
+  
+  // 创建唯一键
+  const key = `${type}_${index}`;
+  
+  // 如果已经尝试过webp格式，不再重试
+  if (imageLoadState.value[key]?.triedWebp) {
+    return;
+  }
+  
+  // 标记已尝试webp格式
+  imageLoadState.value[key] = {
+    ...imageLoadState.value[key],
+    triedWebp: true
+  };
 }
 // 搜索类型选项
 const searchTypeOptions = [
@@ -42,6 +80,11 @@ const searchTypeOptions = [
 const handleFocus = () => {
   isFocused.value = true
 }
+
+// 过滤掉"查看更多"项的电影搜索结果
+const filteredMovieResults = computed(() => {
+  return movieSearchResults.value.filter(item => item.tpl_name !== 'search_more')
+})
 
 const handleBlur = () => {
   // 延迟隐藏结果，以便点击结果项
@@ -126,13 +169,24 @@ const selectMovie = (movie) => {
     return
   }
 
-  // 跳转到电影详情页面
+  // 根据tpl_name跳转到不同的页面
+  if (movie.tpl_name === 'search_common') {
+    // 跳转到人物详情页面
+    router.push({
+      path: `/person/${movie.id}`,
+      query: {
+        search_text: searchQuery.value
+      }
+    })
+  } else {
+    // 跳转到电影详情页面
   router.push({
     path: `/movie/${movie.id}`,
     query: { 
       search_text: searchQuery.value
     }
   })
+  }
   showMovieResults.value = false
 }
 
@@ -194,18 +248,19 @@ const handleSearchTypeChange = () => {
               </div>
               <div class="results-list">
                 <div
-                  v-for="item in movieSearchResults"
+                  v-for="(item, index) in filteredMovieResults"
                   :key="item.id"
-                  :class="['result-item', { 'result-divider': item.tpl_name === 'search_more' }]"
+                  :class="['result-item', { 'search-common': item.tpl_name === 'search_common' }]"
                   @click="selectMovie(item)"
                 >
-                  <div class="result-cover" v-if="item.tpl_name !== 'search_more'">
-                    <img :src="getImageUrl(item.cover_url)" :alt="item.title" />
+                  <div class="result-cover">
+                    <img :src="getImageUrl(item.cover_url,index,'search')" :alt="item.title" @error="(e) => handleDoubanImageError(e, index, 'search')"/>
                   </div>
                   <div class="result-info">
                     <div class="result-title">{{ item.title }}</div>
-                    <div class="result-meta" v-if="item.tpl_name !== 'search_more'">{{ item.abstract }}</div>
-                    <div class="result-rating" v-if="item.rating && item.rating.value > 0 && item.tpl_name !== 'search_more'">
+                    <div class="result-meta" >{{ item.abstract }}</div>
+                    <div class="result-meta" >{{ item.abstract_2 }}</div>
+                    <div class="result-rating" v-if="item.rating && item.rating.value > 0 ">
                       <span class="rating-value">{{ item.rating.value }}</span>
                       <el-rate
                         v-model="item.rating.star_count"
@@ -308,6 +363,15 @@ const handleSearchTypeChange = () => {
 .result-item:hover {
   background-color: #f5f7fa;
   border-left-color: #409eff;
+}
+
+.search-common {
+  background-color: #e6f7e6;
+}
+
+.search-common:hover {
+  background-color: #f5f7fa;
+  border-left-color: #429142;
 }
 
 .result-divider {

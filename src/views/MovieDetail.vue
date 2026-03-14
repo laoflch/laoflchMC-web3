@@ -38,7 +38,9 @@ const showAllActors = ref(false)
 const imdbData = ref(null)
 const imdbImages = ref([])
 const loadingImdb = ref(false)
-const imdbAfter = ref('')
+const imdbCursor = ref('')
+const imdbHasNext = ref(false)
+const imageLoadState = ref({})
 const loadingMoreImdb = ref(false)
 const imdbTotal = ref(0)
 const imageRefs = ref([])
@@ -78,7 +80,7 @@ const clearAsyncTasks = () => {
 
 
 // 获取图片URL
-const getImageUrl = (coverUrl) => {
+const getImageUrl = (coverUrl, index, type) => {
   // 如果是默认封面图片，返回本地默认图片
   if (coverUrl === 'https://img1.doubanio.com/cuphead/movie-static/pics/movie_default_medium.png') {
     return `${imgBaseUrl}/api/image/thumbnail/movie_posters/39d129b5-d03d-353d-a20e-6a324db817a3`
@@ -90,7 +92,43 @@ const getImageUrl = (coverUrl) => {
   const fileName = pathParts.pop();
   const directoryPath = pathParts.join('/');
   const encodedPath = btoa(directoryPath).replace(/\+/g, '-').replace(/\//g, '_');
+  
+  // 检查是否需要使用webp格式
+  if (index !== undefined && type !== undefined) {
+    const key = `${type}_${index}`;
+    if (imageLoadState.value[key]?.triedWebp) {
+      // 如果已经尝试过webp格式，使用webp格式
+      const dotIndex = fileName.lastIndexOf('.');
+      if (dotIndex !== -1) {
+        const newFileName = fileName.substring(0, dotIndex) + '.webp';
+        return `${API_BASE}/api/video/douban/image/${encodedPath}/${newFileName}`;
+      }
+    }
+  }
+  
   return `${API_BASE}/api/video/douban/image/${encodedPath}/${fileName}`;
+}
+
+// 处理豆瓣图片加载失败，尝试使用webp格式
+const handleDoubanImageError = (event, index, type) => {
+  // 如果没有提供index和type，返回
+  if (index === undefined || type === undefined) {
+    return;
+  }
+  
+  // 创建唯一键
+  const key = `${type}_${index}`;
+  
+  // 如果已经尝试过webp格式，不再重试
+  if (imageLoadState.value[key]?.triedWebp) {
+    return;
+  }
+  
+  // 标记已尝试webp格式
+  imageLoadState.value[key] = {
+    ...imageLoadState.value[key],
+    triedWebp: true
+  };
 }
 
 // 获取电影详情
@@ -106,8 +144,6 @@ const fetchMovieDetail = async () => {
   loading.value = true
   error.value = null
 
-  console.log('doubanId:', doubanId)
-  console.log('searchText:', searchText)
 
   try {
     const response = await post('/api/video/douban/video-info', {
@@ -503,8 +539,8 @@ const parseLdJsonData = () => {
 const getImdbThumbnailUrl = (imageUrl) => {
   if (!imageUrl) return ''
   // IMDb的图片URL格式: https://m.media-amazon.com/images/M/xxx._V1_.jpg
-  // 将其中的 _V1_ 替换为 _V1_UX200_ 来获取200px宽的缩略图
-  return imageUrl.replace(/_V1_\./, '_V1_UX200_.')
+  // 将其中的 _V1_ 替换为 _V1_UX300_ 来获取300px宽的缩略图
+  return imageUrl.replace(/_V1_\./, '_V1_UX300_.')
 }
 
 // 处理图片点击事件
@@ -564,15 +600,19 @@ const fetchImdbContent = async (imdbId) => {
   try {
     const response = await post('/api/video/imdb/posters-page', {
       imdb_id: imdbId,
-      page_start: ''
+      page_start: '',
+      cursor_forward:0
+
     })
 
     if (response && response.status === 1 && response.data) {
       console.log(response.data)
-      // 保存after值用于分页
-      if (response.data.after) {
-        imdbAfter.value = response.data.after
+      // 保存cursor值用于分页
+      if (response.data.cursor) {
+        imdbCursor.value = response.data.cursor
       }
+
+      imdbHasNext.value = response.data.hasNext
       // 保存total值
       if (response.data.total !== undefined) {
         imdbTotal.value = response.data.total
@@ -610,7 +650,7 @@ const loadMoreImdbImages = async () => {
     return
   }
 
-  if (!imdbAfter.value) {
+  if (!imdbCursor.value) {
     console.log('没有更多图片可以加载')
     ElMessage.warning('没有更多剧照了')
     return
@@ -623,17 +663,19 @@ const loadMoreImdbImages = async () => {
   try {
     const response = await post('/api/video/imdb/posters-page', {
       imdb_id: imdbData.value.imdbId,
-      page_start: imdbAfter.value
+      page_start: imdbCursor.value,
+      cursor_forward:0
     })
 
     if (response && response.status === 1 && response.data) {
      // console.log(response.data)
-      // 更新after值
-      if (response.data.after) {
-        imdbAfter.value = response.data.after
+      // 更新cursor值
+      if (response.data.cursor) {
+        imdbCursor.value = response.data.cursor
       } else {
-        imdbAfter.value = ''
+        imdbCursor.value = ''
       }
+      imdbHasNext.value = response.data.hasNext
       // 追加新图片到列表
       let newImages = []
       if (Array.isArray(response.data)) {
@@ -998,9 +1040,10 @@ const uploadSelectedImages = async () => {
               <!-- 海报 -->
               <div class="poster-section">
                 <img 
-                  :src="getImageUrl(movieDetail.PosterURL)" 
+                  :src="getImageUrl(movieDetail.PosterURL, 0, 'poster')" 
                   :alt="parseLdJsonData()?.name || '电影海报'" 
                   class="movie-poster"
+                  @error="(e) => handleDoubanImageError(e, 0, 'poster')"
                 />
                 <!-- 评分 -->
                 <div v-if="parseLdJsonData()?.aggregateRating" class="rating-section">
@@ -1142,14 +1185,15 @@ const uploadSelectedImages = async () => {
             </template>
             <div class="celebrities-list">
               <div 
-                v-for="celebrity in movieDetail.Celebrities" 
+                v-for="(celebrity, index) in movieDetail.Celebrities" 
                 :key="celebrity.Link"
                 class="celebrity-item"
               >
                 <img 
-                  :src="getImageUrl(celebrity.AvatarURL)" 
+                  :src="getImageUrl(celebrity.AvatarURL, index, 'celebrity')" 
                   :alt="celebrity.FullName || celebrity.ChineseName"
                   class="celebrity-avatar"
+                  @error="(e) => handleDoubanImageError(e, index, 'celebrity')"
                 />
                 <div class="celebrity-info">
                   <div class="celebrity-name">{{ celebrity.FullName || celebrity.ChineseName }}</div>
@@ -1240,7 +1284,7 @@ const uploadSelectedImages = async () => {
               </div>
             </div>
             <!-- 加载更多按钮 -->
-            <div v-if="imdbAfter" class="load-more-container">
+            <div v-if="imdbHasNext" class="load-more-container">
               <el-button
                 type="primary"
                 :loading="loadingMoreImdb"

@@ -70,15 +70,22 @@ const scrollScreenshots = (direction) => {
   
   nextTick(() => {
     updateScrollButtons(direction)
+    // console.log('更新滚动按钮状态:', {
+    //   canScrollLeft: canScrollLeft.value,
+    //   canScrollRight: canScrollRight.value
+    // })
   })
 }
 
 const updateScrollButtons = async (direction) => {
   const nav = document.querySelector('.douban-images-list')
   if (!nav) return
+
+  //console.log('更新滚动按钮状态，当前scrollRight:', nav.canScrollRight, 'scrollWidth:', nav.scrollWidth, 'clientWidth:', nav.clientWidth)
   
   canScrollLeft.value = nav.scrollLeft > 0
-  canScrollRight.value = nav.scrollLeft < nav.scrollWidth - nav.clientWidth
+  canScrollRight.value = nav.scrollLeft < nav.scrollWidth - nav.clientWidth-300
+    //canScrollRight.value = nav.scrollR > 0
 
 // 如果向右滚动且无法继续滚动，则加载更多图片
 if (direction === 1 && !canScrollRight.value && personDetail.value?.Picture?.Pictures?.length > 0) {
@@ -89,11 +96,16 @@ if (direction === 1 && !canScrollRight.value && personDetail.value?.Picture?.Pic
     if(photoId!==old_photo_id){
        const result = await loadMoreDoubanImages('right', photoId);
        old_photo_id = photoId
-       console.log('加载更多豆瓣图片响应:', result,i,personDetail.value.Picture.Pictures.length,photoId)
+       //console.log('加载更多豆瓣图片响应:', result,i,personDetail.value.Picture.Pictures.length,photoId)
        // 如果返回值是 true，则中断循环
     if (result) {
       break;
     }
+      if(i===0){
+      ElMessage.info('没有更多图片了')
+
+
+  }
     }else{
        continue
     }
@@ -110,12 +122,17 @@ if (direction === 1 && !canScrollRight.value && personDetail.value?.Picture?.Pic
      if(photoId!==old_photo_id){
     const result = await loadMoreDoubanImages('left', photoId);
     old_photo_id = photoId
-    console.log('加载更多豆瓣图片响应:', result,i,personDetail.value.Picture.Pictures.length,photoId)
+    //console.log('加载更多豆瓣图片响应:', result,i,personDetail.value.Picture.Pictures.length,photoId)
 
     // 如果返回值是 true，则中断循环
     if (result) {
 
      break;
+  }
+  if(i===personDetail.value.Picture.Pictures.length-1){
+      ElMessage.info('没有更多图片了')
+
+
   }
    }else{
        continue
@@ -781,7 +798,7 @@ const  loadMoreDoubanImages = async (direction = 'left', pid = '') => {
   // }
   // pid="2379353869"
 
-  console.log('加载更多豆瓣图片响应:', direction, 'pid:', pid)
+  //console.log('加载更多豆瓣图片响应:', direction, 'pid:', pid)
   try {
     // 构建API URL
     //let apiUrl = `/api/video/douban/image-more/${pid}/${direction}`
@@ -796,7 +813,7 @@ const  loadMoreDoubanImages = async (direction = 'left', pid = '') => {
       try {
         responseData = JSON.parse(responseData)
       } catch (e) {
-        console.error('解析响应数据失败:', e)
+        //console.error('解析响应数据失败:', e)
         ElMessage.error('响应数据格式错误')
         return false
       }
@@ -817,19 +834,27 @@ const  loadMoreDoubanImages = async (direction = 'left', pid = '') => {
           ImageURL: photo.icon.replace(/\/albumicon\//, '/photo/')
           }
         ))
-  console.log('加载更多豆瓣图片响应:', newPictures)
-        if(newPictures&&newPictures.length>0){
+
+        // 获取现有图片的PhotoID集合
+const existingPhotoIds = new Set(personDetail.value.Picture.Pictures.map(p => p.PhotoID))
+
+// 过滤掉重复的图片
+const filteredNewPictures = newPictures.filter(photo => !existingPhotoIds.has(photo.PhotoID))
+
+  //console.log('加载更多豆瓣图片响应:', filteredNewPictures)
+        if(filteredNewPictures&&filteredNewPictures.length>0){
+
         // 将新图片添加到现有图片列表中
         if (direction === 'left') {
-        　personDetail.value.Picture.Pictures = [...newPictures, ...personDetail.value.Picture.Pictures]
+        　personDetail.value.Picture.Pictures = [...filteredNewPictures, ...personDetail.value.Picture.Pictures]
         } else {
-          personDetail.value.Picture.Pictures = [...personDetail.value.Picture.Pictures, ...newPictures]
+          personDetail.value.Picture.Pictures = [...personDetail.value.Picture.Pictures, ...filteredNewPictures]
         }
 
-        ElMessage.success(`已加载 ${newPictures.length} 张新图片`)
+        ElMessage.success(`已加载 ${filteredNewPictures.length} 张新图片`)
         return true
       }else{
-        ElMessage.success(`已加载 ${newPictures.length} 张新图片`)
+        //ElMessage.success(`已加载 ${filteredNewPictures.length} 张新图片`)
         return false
       }
       } else {

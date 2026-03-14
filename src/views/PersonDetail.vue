@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Layout from '@/components/layouts/Layout.vue'
 import * as Icons from '@element-plus/icons-vue'
@@ -42,15 +42,88 @@ const loadingMoreImdb = ref(false)
 const imdbTotal = ref(0)
 const showImageViewer = ref(false)
 const initialIndex = ref(0)
+const showDoubanImageViewer = ref(false)
+const doubanInitialIndex = ref(0)
 const selectedImdbImages = ref(new Set())
 const uploadProgress = ref(0)
 const showUploadDrawer = ref(false)
 const uploadTasks = ref([])
 const syncingToRepo = ref(false)
-
+const showDoubanNav = ref(true)
+const showSummaryNav = ref(false)
+const canScrollLeft = ref(false)
+const canScrollRight = ref(true)
 // 批次任务展开状态
 const expandedTasks = ref([])
 
+
+
+
+const scrollScreenshots = (direction) => {
+  const nav = document.querySelector('.douban-images-list')
+  if (!nav) return
+  
+  
+
+  const scrollAmount = 300 * direction
+  nav.scrollBy({ left: scrollAmount, behavior: 'smooth' })
+  
+  nextTick(() => {
+    updateScrollButtons(direction)
+  })
+}
+
+const updateScrollButtons = async (direction) => {
+  const nav = document.querySelector('.douban-images-list')
+  if (!nav) return
+  
+  canScrollLeft.value = nav.scrollLeft > 0
+  canScrollRight.value = nav.scrollLeft < nav.scrollWidth - nav.clientWidth
+
+// 如果向右滚动且无法继续滚动，则加载更多图片
+if (direction === 1 && !canScrollRight.value && personDetail.value?.Picture?.Pictures?.length > 0) {
+  let old_photo_id = ''
+  // 从前往后循环调用 loadMoreDoubanImages
+  for (let i = personDetail.value.Picture.Pictures.length - 1; i >= 0; i--) {
+    const photoId = personDetail.value.Picture.Pictures[i].PhotoID;
+    if(photoId!==old_photo_id){
+       const result = await loadMoreDoubanImages('right', photoId);
+       old_photo_id = photoId
+       console.log('加载更多豆瓣图片响应:', result,i,personDetail.value.Picture.Pictures.length,photoId)
+       // 如果返回值是 true，则中断循环
+    if (result) {
+      break;
+    }
+    }else{
+       continue
+    }
+    
+    
+    
+  }
+  return
+}else if (direction === -1 && !canScrollLeft.value && personDetail.value?.Picture?.Pictures?.length > 0) {// 如果向右滚动且无法继续滚动，则加载更多图片
+   let old_photo_id = ''
+  // 从后往前循环调用 loadMoreDoubanImages
+  for (let i = 0; i < personDetail.value.Picture.Pictures.length; i++) {
+    const photoId = personDetail.value.Picture.Pictures[i].PhotoID;
+     if(photoId!==old_photo_id){
+    const result = await loadMoreDoubanImages('left', photoId);
+    old_photo_id = photoId
+    console.log('加载更多豆瓣图片响应:', result,i,personDetail.value.Picture.Pictures.length,photoId)
+
+    // 如果返回值是 true，则中断循环
+    if (result) {
+
+     break;
+  }
+   }else{
+       continue
+    }
+}
+}
+
+}
 // 切换批次任务的展开/收起状态
 const toggleSubTasks = (taskId) => {
   const index = expandedTasks.value.indexOf(taskId)
@@ -331,6 +404,24 @@ const goBack = () => {
   router.back()
 }
 
+// 滚动到人物简介卡片
+const scrollToSummary = () => {
+  const summaryCard = document.querySelector('.summary-card')
+  if (summaryCard) {
+    summaryCard.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+// 滚动到豆瓣图片卡片
+const scrollToDoubanImages = () => {
+  const doubanCard = document.querySelector('.douban-images-card')
+  if (doubanCard) {
+    doubanCard.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+
+
 
 
 // 获取IMDb内容
@@ -474,6 +565,14 @@ const showImagePreview = (index) => {
   initialIndex.value = index
   // 显示图片查看器
   showImageViewer.value = true
+}
+
+// 显示豆瓣图片预览
+const showDoubanImagePreview = (index) => {
+  // 设置初始索引
+  doubanInitialIndex.value = index
+  // 显示豆瓣图片查看器
+  showDoubanImageViewer.value = true
 }
 
 // 上传选中的图片
@@ -661,6 +760,93 @@ const loadMoreImdbImages = async () => {
   }
 }
 
+// 加载更多豆瓣图片
+const  loadMoreDoubanImages = async (direction = 'left', pid = '') => {
+  // console.log('加载更多豆瓣图片响应:', direction, 'pid:', pid)
+  // const doubanId = route.params.id
+  // if (!doubanId) {
+  //   ElMessage.error('缺少人物ID')
+  //   return false
+  // }
+
+  // 检查 personDetail.value 是否存在
+  if (!personDetail.value) {
+    ElMessage.error('人物详情未加载')
+    return false
+  }
+
+  // // 如果是向右导航，获取当前显示的豆瓣图片中最右一张的PhotoID
+  // if (direction === 'right' && !pid && personDetail.value?.Picture?.Pictures?.length > 0) {
+  //   pid = personDetail.value.Picture.Pictures[personDetail.value.Picture.Pictures.length - 1].PhotoID
+  // }
+  // pid="2379353869"
+
+  console.log('加载更多豆瓣图片响应:', direction, 'pid:', pid)
+  try {
+    // 构建API URL
+    //let apiUrl = `/api/video/douban/image-more/${pid}/${direction}`
+    // if (pid) {
+    //   apiUrl += `/${pid}`
+    // }
+    //
+    const response = await get(`/api/video/douban/image-more/${pid}/${direction}`)
+    // 将 JSON 字符串转换为对象
+    let responseData = response.data
+    if (typeof responseData === 'string') {
+      try {
+        responseData = JSON.parse(responseData)
+      } catch (e) {
+        console.error('解析响应数据失败:', e)
+        ElMessage.error('响应数据格式错误')
+        return false
+      }
+    }
+  
+    if (response && response.status === 1 && responseData && responseData.photos) {
+      // 如果返回的是图片数组，则添加到现有图片列表中
+      if (Array.isArray(responseData.photos) && responseData.photos.length > 0) {
+        if (!personDetail.value.Picture) {
+          personDetail.value.Picture = { Pictures: [] }
+        }
+        const newPictures = responseData.photos
+        .filter(photo => photo.icon !== undefined)
+        .map(photo => (
+          {
+          PhotoURL: photo.path,
+          PhotoID: photo.id,
+          ImageURL: photo.icon.replace(/\/albumicon\//, '/photo/')
+          }
+        ))
+  console.log('加载更多豆瓣图片响应:', newPictures)
+        if(newPictures&&newPictures.length>0){
+        // 将新图片添加到现有图片列表中
+        if (direction === 'left') {
+        　personDetail.value.Picture.Pictures = [...newPictures, ...personDetail.value.Picture.Pictures]
+        } else {
+          personDetail.value.Picture.Pictures = [...personDetail.value.Picture.Pictures, ...newPictures]
+        }
+
+        ElMessage.success(`已加载 ${newPictures.length} 张新图片`)
+        return true
+      }else{
+        ElMessage.success(`已加载 ${newPictures.length} 张新图片`)
+        return false
+      }
+      } else {
+        ElMessage.info('没有更多图片了')
+        return false
+      }
+    } else {
+      ElMessage.error('加载图片失败')
+      return false
+    }
+  } catch (err) {
+    console.error('加载更多豆瓣图片出错:', err)
+    ElMessage.error('加载图片失败，请稍后重试')
+    return false
+  }
+}
+
 // 关闭Socket.IO连接
 const closeWebSocket = () => {
   if (websocket.value) {
@@ -675,11 +861,19 @@ onMounted(() => {
   fetchPersonDetail()
   // 初始化WebSocket连接
   initWebSocket()
+
+  nextTick(() => {
+loadMoreDoubanImages("right")
+    
+    
+  })
+  
 })
 
 // 组件卸载时关闭WebSocket连接
 onUnmounted(() => {
   closeWebSocket()
+  
 })
 </script>
 
@@ -787,6 +981,7 @@ onUnmounted(() => {
                   :initial-index="index"
                   class="douban-image"
                   @error="(e) => handleDoubanImageError(e, index, 'douban')"
+                  @dblclick="showDoubanImagePreview(index)"
                 >
                   <template #error>
                     <div class="image-error">
@@ -795,6 +990,30 @@ onUnmounted(() => {
                   </template>
                 </el-image>
               </div>
+            </div>
+            <!-- 豆瓣图片预览组件 -->
+            <el-image-viewer
+              v-if="showDoubanImageViewer"
+              :url-list="personDetail.Picture.Pictures.map(img => getImageUrl(img.ImageURL, personDetail.Picture.Pictures.indexOf(img), 'douban'))"
+              :initial-index="doubanInitialIndex"
+              @close="showDoubanImageViewer = false"
+            />
+            <!-- 左右导航条 -->
+            <div class="douban-nav-buttons" v-if="showDoubanNav">
+              <el-button
+                class="nav-button left-button"
+                :icon="Icons.ArrowLeft"
+                circle
+              
+                @click="scrollScreenshots(-1)"
+              />
+              <el-button
+                class="nav-button right-button"
+                :icon="Icons.ArrowRight"
+                circle
+               
+                @click="scrollScreenshots(1)"
+              />
             </div>
           </el-card>
 
@@ -1124,32 +1343,51 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.summary-card,
+.summary-card {
+  margin-bottom: 24px;
+  position: relative;
+}
+
 .works-card,
-.imdb-images-card,
-.douban-images-card {
+.imdb-images-card {
   margin-bottom: 24px;
 }
 
+.douban-images-card {
+  margin-bottom: 24px;
+  position: relative;
+}
+
+.screenshots-container {
+  position: relative;
+  width: 100%;
+}
+
 .douban-images-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
+  display: flex;
+  gap: 10px;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  padding: 10px 0;
+  scrollbar-width: none;
+}
+
+.douban-images-list::-webkit-scrollbar {
+  display: none;
 }
 
 .douban-image-item {
-  position: relative;
+  flex: 0 0 calc(20% - 8px);
+  aspect-ratio: 2/3;
   border-radius: 8px;
   overflow: hidden;
-  background-color: #f5f7fa;
-  aspect-ratio: 2/3;
-  transition: all 0.3s ease;
   cursor: pointer;
+  transition: transform 0.3s, box-shadow 0.3s;
 }
 
 .douban-image-item:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .douban-image {
@@ -1565,5 +1803,24 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   color: #ff9900;
+}
+.douban-nav-buttons {
+  position: absolute;
+  top: 60%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 20px;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.nav-button {
+  pointer-events: auto;
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 </style>

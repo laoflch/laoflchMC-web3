@@ -612,7 +612,8 @@ const fetchImdbContent = async (imdbId) => {
         imdbCursor.value = response.data.cursor
       }
 
-      imdbHasNext.value = response.data.hasNext
+      // 设置hasNext值，如果未返回则默认为true（假设还有更多数据）
+      imdbHasNext.value = response.data.hasNext !== undefined ? response.data.has_next : true
       // 保存total值
       if (response.data.total !== undefined) {
         imdbTotal.value = response.data.total
@@ -675,7 +676,7 @@ const loadMoreImdbImages = async () => {
       } else {
         imdbCursor.value = ''
       }
-      imdbHasNext.value = response.data.hasNext
+      imdbHasNext.value = response.data.has_next !== undefined ? response.data.has_next : true
       // 追加新图片到列表
       let newImages = []
       if (Array.isArray(response.data)) {
@@ -994,6 +995,23 @@ const uploadSelectedImages = async () => {
     uploadProgress.value = 0
   }
 }
+
+// 处理演职员点击事件
+const handleCelebrityClick = (celebrity) => {
+  // 从Link中提取豆瓣人物ID
+  // Link格式: https://movie.douban.com/celebrity/123456/
+  const match = celebrity.Link?.match(/personage\/(\d+)/)
+  if (match && match[1]) {
+    const celebrityId = match[1]
+    // 跳转到人物详情页面
+    router.push({
+      name: 'PersonDetail',
+      params: { id: celebrityId, type: 'person' }
+    })
+  } else {
+    ElMessage.warning('无法获取人物详情链接')
+  }
+}
 </script>
 
 <template>
@@ -1188,6 +1206,7 @@ const uploadSelectedImages = async () => {
                 v-for="(celebrity, index) in movieDetail.Celebrities" 
                 :key="celebrity.Link"
                 class="celebrity-item"
+                @click="handleCelebrityClick(celebrity)"
               >
                 <img 
                   :src="getImageUrl(celebrity.AvatarURL, index, 'celebrity')" 

@@ -383,6 +383,7 @@ const removeTask = (taskId) => {
 // 获取人物详情
 const fetchPersonDetail = async () => {
   const doubanId = route.params.id
+  const type = route.params.type
   const searchText = route.query.search_text || ''
 
   if (!doubanId) {
@@ -394,8 +395,24 @@ const fetchPersonDetail = async () => {
   error.value = null
 
   try {
+
+    let pathUrl 
+
+    console.log('fetchPersonDetail type:', type)
+
+    if (type === 'person') {
+        pathUrl = `https://www.douban.com/personage/${doubanId}/`
+
+    }else if(type === 'celebrity'){
+        path = `https://movie.douban.com/celebrity/${doubanId}/`
+ 
+
+    }
+      
+
+
     const response = await post('/api/video/douban/video-info', {
-      path: `https://movie.douban.com/celebrity/${doubanId}/`,
+      path: pathUrl,
       info_type:1
      
     })
@@ -881,6 +898,65 @@ const closeWebSocket = () => {
   wsConnected.value = false
 }
 
+// 同步人物仓库
+const syncToPersonRepo = async () => {
+  if (!personDetail.value) {
+    ElMessage.error('没有人物信息可同步')
+    return
+  }
+
+  const doubanId = route.params.id
+  if (!doubanId) {
+    ElMessage.error('缺少人物ID')
+    return
+  }
+
+  syncingToRepo.value = true
+
+  try {
+    // 获取人物数据
+    const data = personDetail.value
+
+    // 获取IMDb ID
+    const imdbId = data.BaseInfo?.IMDbID
+
+    // 获取本地电影图片数据
+    let localImages = []
+    if (imdbId) {
+      try {
+        const imagesResponse = await get('/api/video/movie-rep/list-local-movie-images/'+imdbId)
+        if (imagesResponse && imagesResponse.status === 1 && imagesResponse.data.data &&imagesResponse.data.cols_index) {
+          // 抽取每行的default字段组成数组
+          localImages = imagesResponse.data.data.map(item => item[imagesResponse.data.cols_index["default"]] || []).flat()
+        }
+      } catch (err) {
+        console.error('获取本地电影图片失败:', err)
+      }
+    }
+
+    // 直接根据 BaseInfo 的属性名和值构造 data
+    const personData = {
+      ...data.BaseInfo,
+      DoubanID: doubanId,
+      Picture: JSON.stringify(data.Picture), // 将图片数据转换为JSON字符串存储
+      images: JSON.stringify(localImages)// 剧照图片ID数组，从接口获取的default字段数据
+    }
+
+    // 使用insert接口新增人物
+    await post('/api/storage/insert', {
+      table: 'movie_person_info',
+      data: personData
+    })
+
+    ElMessage.success('同步人物仓库成功')
+  } catch (err) {
+    console.error('同步人物仓库出错:', err)
+    ElMessage.error(err.message || '同步人物仓库失败，请稍后重试')
+  } finally {
+    syncingToRepo.value = false
+  }
+}
+
 // 组件挂载时获取人物详情
 onMounted(() => {
   fetchPersonDetail()
@@ -964,6 +1040,15 @@ onUnmounted(() => {
                       class="fetch-imdb-btn"
                     >
                       {{ imdbImages.length > 0 ? '刷新IMDb照片' : '获取IMDb照片' }}
+                    </el-button>
+                    <el-button
+                      type="success"
+                      size="small"
+                      :loading="syncingToRepo"
+                      @click="syncToPersonRepo"
+                      class="sync-repo-btn"
+                    >
+                      同步人物仓库
                     </el-button>
                   </div>
                 </div>

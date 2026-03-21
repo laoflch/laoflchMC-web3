@@ -393,7 +393,7 @@ const filteredMovieDetails = computed(() => {
 <template>
   <div class="movie-list">
     <div class="header">
-      <h3>电影列表</h3>
+
       <div class="header-actions">
         <el-button type="primary" :icon="Plus" @click="openAddDialog">新增电影</el-button>
         <el-button @click="load">刷新</el-button>
@@ -564,6 +564,7 @@ const filteredMovieDetails = computed(() => {
 .header-actions {
   display: flex;
   gap: 10px;
+  margin-left: auto;
 }
 
 .poster-uploader {

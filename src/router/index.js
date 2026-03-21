@@ -27,7 +27,7 @@ const routes = [
     meta: { title: '电影详情' }
   },
   {
-    path: '/person/:id',
+    path: '/person/:id/:type',
     name: 'PersonDetail',
     component: () => import('../views/PersonDetail.vue'),
     meta: { title: '人物详情' }

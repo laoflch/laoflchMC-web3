@@ -143,7 +143,7 @@ const searchMovies = async () => {
     //if (typeof response === 'string') {
      let data = JSON.parse(response.data)
    // }
- console.log(data)
+// console.log(data)
     if (data && data.items) {
       movieSearchResults.value = data.items
       showMovieResults.value = true

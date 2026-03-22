@@ -173,7 +173,7 @@ const selectMovie = (movie) => {
   if (movie.tpl_name === 'search_common') {
     // 跳转到人物详情页面
     router.push({
-      path: `/person/${movie.id}`,
+      path: `/person/${movie.id}/celebrity`,
       query: {
         search_text: searchQuery.value
       }

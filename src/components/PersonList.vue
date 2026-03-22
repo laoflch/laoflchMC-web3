@@ -47,6 +47,28 @@ const handleImageError = (e) => {
   e.target.src = `${imgBaseUrl}/api/image/thumbnail/movie_posters/39d129b5-d03d-353d-a20e-6a324db817a3`
 }
 
+// 处理豆瓣图片加载失败，尝试使用webp格式
+const handleDoubanImageError = (event, index, type) => {
+  // 如果没有提供index和type，返回
+  if (index === undefined || type === undefined) {
+    return;
+  }
+  
+  // 创建唯一键
+  const key = `${type}_${index}`;
+  
+  // 如果已经尝试过webp格式，不再重试
+  if (imageLoadState.value[key]?.triedWebp) {
+    return;
+  }
+  
+  // 标记已尝试webp格式
+  imageLoadState.value[key] = {
+    ...imageLoadState.value[key],
+    triedWebp: true
+  };
+}
+
 // 获取图片URL
 const getImageUrl = (coverUrl, index, type) => {
   // 如果是默认封面图片，返回本地默认图片
@@ -270,13 +292,15 @@ const filteredPersonDetails = computed(() => {
       >
         <el-card class="person-card" shadow="hover" @click="showDetail(person)">
           <div class="person-image">
-            <img :src="getImageUrl(person[cols_index.AvatarURL], 0, 'avatar')" :alt="person[cols_index.ChineseNames]" @error="handleImageError">
+            <img :src="getImageUrl(person[cols_index.AvatarURL], 0, 'avatar')" :alt="person[cols_index.ChineseNames]" @error="(e) => handleDoubanImageError(e, 0, 'avatar')">
+           
           </div>
           <div class="person-info">
             <h4 class="person-title">
               {{ person[cols_index.ChineseNames] }}
               <el-icon class="edit-icon" @click="handleEditPerson(person, $event)"><Edit /></el-icon>
             </h4>
+
             <p class="person-subtitle">{{ person[cols_index.ForeignNames] }}</p>
             <p class="person-imdb">IMDB: {{ person[cols_index.IMDbID] }}</p>
           </div>
@@ -713,7 +737,7 @@ const filteredPersonDetails = computed(() => {
 <style>
 /* 添加针对超大屏幕的媒体查询 */
 @media (min-width: 3820px) {
-  .movie-list .el-row .el-col {
+  .person-list .el-row .el-col {
     width: calc(100% / 12) ;
     flex: 0 0 calc(100% / 12) ;
     max-width: calc(100% / 12) ;
@@ -722,7 +746,7 @@ const filteredPersonDetails = computed(() => {
     padding-left: 15px ;
   }
   
-  .movie-list .el-row {
+  .person-list .el-row {
     display: flex ;
     flex-wrap: wrap ;
     margin-right: -15px ;

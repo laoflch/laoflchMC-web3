@@ -404,7 +404,7 @@ const fetchPersonDetail = async () => {
         pathUrl = `https://www.douban.com/personage/${doubanId}/`
 
     }else if(type === 'celebrity'){
-        path = `https://movie.douban.com/celebrity/${doubanId}/`
+        pathUrl = `https://movie.douban.com/celebrity/${doubanId}/`
  
 
     }

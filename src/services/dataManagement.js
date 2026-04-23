@@ -12,10 +12,7 @@ export async function getTableSchema(tableName) {
   return http.get(`/api/storage/table/schema/${tableName}`)
 }
 
-// 修改表结构
-export async function alterTableSchema(tableName, schema) {
-  return http.post(`/api/storage/table/schema/${tableName}`, schema)
-}
+
 
 // 获取表数据
 export async function getTableData(tableName, params = {}) {
@@ -93,6 +90,11 @@ export async function importData(tableName, file) {
 
 // 创建表
 export async function createTable(tableName, pk,schema) {
-  console.log('createTable params:', { tableName, pk,schema })
+  //console.log('createTable params:', { tableName, pk,schema })
   return http.post('/api/storage/create/table', { table_name: tableName,file_path:tableName, pk:pk,cols:schema })
+}
+
+// 修改表结构
+export async function alterTableSchema(tableName, addCols, dropCols) {
+  return http.post(`/api/storage/update/table`, { table_name: tableName, add_cols:addCols, del_cols:dropCols })
 }

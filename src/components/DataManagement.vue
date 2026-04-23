@@ -611,9 +611,21 @@ const saveSchemaChanges = async () => {
     return
   }
 
+  // 获取新增的字段
+  const add_cols = tempTableSchema.value.filter(field => {
+    // 检查该字段是否在原始表结构中不存在
+    return !tableSchema.value.some(originalField => originalField.name === field.name)
+  })
+
+  // 获取删除的字段
+  const drop_cols = tableSchema.value.filter(field => {
+    // 检查该字段是否在临时表结构中不存在
+    return !tempTableSchema.value.some(tempField => tempField.name === field.name)
+  })
+
   try {
     loading.value = true
-    await alterTableSchema(currentTable.value, tempTableSchema.value)
+    await alterTableSchema(currentTable.value, add_cols, drop_cols)
     ElMessage.success('表结构修改成功')
     alterSchemaDialogVisible.value = false
     await loadTableSchema()
